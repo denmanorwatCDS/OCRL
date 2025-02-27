@@ -1,0 +1,27 @@
+# Don't forget to install sudo apt-get install libosmesa6-dev !!!
+
+akro==0.0.8
+comet-ml==3.47.1
+Cython==0.29.35
+dm-control==1.0.5
+dm-env==1.5
+dm-tree==0.1.7
+gym==0.17.2
+imageio==2.31.0
+imageio-ffmpeg==0.4.8
+importlib-resources==5.12.0
+matplotlib==3.7.1
+moviepy==1.0.3
+mujoco==2.2.1
+mujoco-py==2.1.2.14
+numpy==1.24.3
+omegaconf==2.3.0
+opencv-python==4.7.0.72
+patchelf==0.17.2.1
+Pillow==9.5.0
+PyOpenGL==3.1.4
+scipy==1.10.1
+scikit-image==0.19.3
+scikit-learn==1.0.2
+swig==3.0.12
+torch==2.0.1

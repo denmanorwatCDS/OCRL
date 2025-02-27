@@ -1,0 +1,15 @@
+env:
+  name: "ant"
+  normalizer_type: "preset"
+
+trainer_args:
+  traj_batch_size: 8
+  trans_optimization_epochs: 50
+
+replay_buffer:
+  max_transitions: 1000000
+
+skill:
+  name: "metra"
+  discrete: false
+  dim_option: 2

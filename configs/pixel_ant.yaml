@@ -1,0 +1,20 @@
+globals:
+  use_encoder: true
+
+env:
+  name: "dmc_quadruped"
+  normalizer_type: "off"
+  frame_stack: 3
+
+trainer_args:
+  n_parallel: 4
+  traj_batch_size: 8
+  trans_optimization_epochs: 200
+
+replay_buffer:
+  max_transitions: 300000
+
+skill:
+  name: "metra"
+  discrete: false
+  dim_option: 4

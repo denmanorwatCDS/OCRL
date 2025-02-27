@@ -1,0 +1,80 @@
+globals:
+  device: 'cuda'
+  sample_cpu: true
+  seed: 42
+  n_thread: 1
+  n_parallel: 4
+  use_encoder: false
+  mlp_arch: [1024, 1024]
+
+env:
+  name: maze
+  max_path_length: 200
+  frame_stack: null
+  normalizer_type: "off"
+
+skill:
+  name: 'METRA'
+  dim_option: 2
+  discrete: false
+  unit_length: true
+  device: ${globals.device}
+  dual_reg: true
+  dual_slack: 1e-3
+  dual_dist: 'one'
+  dual_lam: 30
+  dual_lr: 1e-4
+  use_encoder: ${globals.use_encoder}
+  trajectory_encoder:
+    dim_option: ${skill.dim_option}
+    hidden_sizes: ${globals.mlp_arch}
+    lr: 1e-4
+    nonlinearity: relu
+    init_std: 1
+    min_std: 1e-6
+    max_std: null
+    std_parameterization: 'exp'
+    bias: True
+    spectral_normalization: false
+
+rl_algo:
+  name: 'SAC'
+  tau: 5e-3
+  scale_reward: 1.
+  target_coef: 1.
+  discount: 0.99
+  device: ${globals.device}
+  use_encoder: ${globals.use_encoder}
+  policy:
+    name: 'option_policy'
+    lr: 1e-4
+    dim_option: ${skill.dim_option}
+    hidden_sizes: ${globals.mlp_arch}
+    layer_normalization: false
+    nonlinearity: tanh
+    distribution:
+      starting_logstd: 0.
+      max_logstd: 2.
+      type: TanhNormal
+  critics:
+    lr: 1e-4
+    dim_option: ${skill.dim_option}
+    hidden_sizes: ${globals.mlp_arch}
+    nonlinearity: relu
+  alpha:
+    value: 1e-2
+    lr: 1e-4
+
+replay_buffer:
+  min_transitions: 10000
+  max_transitions: 300000
+  discount: ${rl_algo.discount}
+
+trainer_args:
+  n_parallel: 4
+  traj_batch_size: 8
+  n_epochs: 100_000
+  batch_size: 256
+  trans_optimization_epochs: 200
+  max_path_length: 200
+  transitions_before_training: 10_000
