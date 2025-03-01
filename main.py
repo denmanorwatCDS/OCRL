@@ -411,7 +411,7 @@ def train_cycle(trainer_config, agent, skill_model, replay_buffer, make_env_fn, 
             logs.update(agent.optimize_op(modified_batch))
         if i % 50 == 0:
             comet_logger.log_metrics(logs)
-        if i % 1000 == 20:
+        if i % 250 == 20:
             eval_metrics(eval_env, make_env_fn(seed = 0), agent, skill_model, num_random_trajectories = 48,
                             sample_processor = replay_buffer.preprocess_data, device = "cuda:0", comet_logger = comet_logger)
 
