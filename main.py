@@ -504,7 +504,7 @@ def fetch_frames(trajectories, example_env, env_name):
     states = [trajectories[i]['observations'] for i in range(len(trajectories))]
     actions = [trajectories[i]['actions'] for i in range(len(trajectories))]
     if env_name in ['dmc_cheetah', 'dmc_quadruped', 'dmc_humanoid']:
-        return (np.array(states) * (255 / 2) + (255 / 2)).astype(np.uint8)
+        return (np.transpose(np.array(states), [0, 1, 3, 4, 2]) * (255 / 2) + (255 / 2)).astype(np.uint8)
     unwrapped_example_env = example_env.unwrapped
 
     video = []
