@@ -144,7 +144,7 @@ def save_video(tensor, fps=15, n_cols=None):
     # Encode sequence of images into gif string
     clip = mpy.ImageSequenceClip(list(tensor), fps=fps)
 
-    plot_path = (pathlib.Path(os.getcwd()) / 'videos' / str(datetime.now()))
+    plot_path = (pathlib.Path(os.getcwd()) / 'videos' / (str(datetime.now()) + '.mp4'))
     plot_path.parent.mkdir(parents=True, exist_ok=True)
 
     clip.write_videofile(str(plot_path), audio=False, verbose=False, logger=None)
@@ -153,7 +153,7 @@ def save_video(tensor, fps=15, n_cols=None):
 def record_video(trajectories, n_cols=None, skip_frames=1):
     renders = []
     for trajectory in trajectories:
-        render = trajectory['env_infos']['render']
+        render = trajectory
         if render.ndim >= 5:
             render = render.reshape(-1, *render.shape[-3:])
         elif render.ndim == 1:
@@ -164,4 +164,5 @@ def record_video(trajectories, n_cols=None, skip_frames=1):
         renders[i] = np.concatenate([render, np.zeros((max_length - render.shape[0], *render.shape[1:]), dtype=render.dtype)], axis=0)
         renders[i] = renders[i][::skip_frames]
     renders = np.array(renders)
+    renders = np.transpose(renders, axes = [0, 1, 4, 2, 3])
     return save_video(renders, n_cols=n_cols)

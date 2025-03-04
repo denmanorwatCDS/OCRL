@@ -4,7 +4,7 @@ globals:
   seed: 42
   n_thread: 1
   n_parallel: 4
-  use_encoder: false
+  encoder: 'concat'
   mlp_arch: [1024, 1024]
 
 env:
@@ -24,7 +24,7 @@ skill:
   dual_dist: 'one'
   dual_lam: 30
   dual_lr: 1e-4
-  use_encoder: ${globals.use_encoder}
+  encoder: ${globals.encoder}
   trajectory_encoder:
     dim_option: ${skill.dim_option}
     hidden_sizes: ${globals.mlp_arch}
@@ -44,7 +44,7 @@ rl_algo:
   target_coef: 1.
   discount: 0.99
   device: ${globals.device}
-  use_encoder: ${globals.use_encoder}
+  encoder: ${globals.encoder}
   policy:
     name: 'option_policy'
     lr: 1e-4

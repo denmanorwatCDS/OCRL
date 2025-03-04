@@ -136,15 +136,15 @@ class METRA():
 
         if self.dual_reg:
             dual_lam = self.dual_lam.param.exp()
-            x = obs
-            y = next_obs
+            x = obs['obs']
+            y = next_obs['obs']
             phi_x = batch['cur_z']
             phi_y = batch['next_z']
 
             if self.dual_dist == 'l2':
                 cst_dist = torch.square(y - x).mean(dim=1)
             elif self.dual_dist == 'one':
-                cst_dist = torch.ones_like(x[:, 0])
+                cst_dist = torch.ones(x.shape[0]).to(x.device)
             elif self.dual_dist == 's2_from_s':
                 s2_dist = self.dist_predictor(obs)
                 s2_dist_mean = s2_dist.mean

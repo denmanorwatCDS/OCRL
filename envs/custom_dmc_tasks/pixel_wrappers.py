@@ -54,7 +54,6 @@ class RenderWrapper(AkroWrapperTrait, gym.Wrapper):
 
     def _transform(self, obs):
         pixels = self.env.render(mode='rgb_array', width=64, height=64).copy()
-        pixels = pixels.flatten()
         return pixels
 
     def reset(self, **kwargs):
@@ -99,24 +98,18 @@ class FrameStackWrapper(AkroWrapperTrait, gym.Wrapper):
         else:
             raise NotImplementedError
 
-    def _transform_observation(self, cur_obs):
+    def _fetch_observation(self):
         assert len(self.frames) == self.num_frames
         obs = np.concatenate(list(self.frames), axis=2)
-        return np.concatenate([obs.flatten(), cur_obs[self.ori_flat_pixel_shape:]], axis=-1)
-
-    def _extract_pixels(self, obs):
-        pixels = obs[:self.ori_flat_pixel_shape].reshape(self.ori_pixel_shape)
-        return pixels
+        return obs
 
     def reset(self, **kwargs):
-        obs = self.env.reset(**kwargs)
-        pixels = self._extract_pixels(obs)
+        pixels = self.env.reset(**kwargs)
         for _ in range(self.num_frames):
             self.frames.append(pixels)
-        return self._transform_observation(obs)
+        return self._fetch_observation()
 
     def step(self, action, **kwargs):
         next_obs, reward, done, info = self.env.step(action, **kwargs)
-        pixels = self._extract_pixels(next_obs)
-        self.frames.append(pixels)
-        return self._transform_observation(next_obs), reward, done, info
+        self.frames.append(next_obs)
+        return self._fetch_observation(), reward, done, info

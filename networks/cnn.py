@@ -55,31 +55,41 @@ class CNN(nn.Module):
 class Encoder(nn.Module):
     def __init__(
             self,
-            pixel_shape,
+            pixel_depth,
+            obs_key,
+            concat_keys,
             spectral_normalization=False,
     ):
         super().__init__()
 
-        self.pixel_shape = pixel_shape
-        self.pixel_dim = np.prod(pixel_shape)
+        self.obs_key, self.concat_keys = obs_key, concat_keys
+        self.pixel_depth = pixel_depth
 
-        self.pixel_depth = self.pixel_shape[-1]
-
-        self.encoder = CNN(self.pixel_depth, spectral_normalization=spectral_normalization)
+        self.encoder = CNN(self.pixel_depth, spectral_normalization = spectral_normalization)
 
     def forward(self, input):
-        assert len(input.shape) == 2
-
-        pixel = input[..., :self.pixel_dim].reshape(-1, *self.pixel_shape).permute(0, 3, 1, 2)
-        state = input[..., self.pixel_dim:]
-
-        pixel = pixel / 255.
+        pixel = input[self.obs_key]
 
         rep = self.encoder(pixel)
         rep = rep.reshape(rep.shape[0], -1)
-        output = torch.cat([rep, state], dim=-1)
+        output = rep
+        for key in self.concat_keys:
+            output = torch.cat([output, input[key]], dim = -1)
 
         return output
+    
+class ConcatEncoder():
+    def __init__(self, obs_key, concat_keys):
+        self.obs_key, self.concat_keys = obs_key, concat_keys
+
+    def forward(self, input):
+        output = input[self.obs_key]
+        for key in self.concat_keys:
+            output = torch.cat([output, input[key]], axis = -1)
+        return output
+    
+    def __call__(self, input):
+        return self.forward(input)
     
 class WithEncoder(nn.Module):
     def __init__(

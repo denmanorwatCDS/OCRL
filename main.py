@@ -13,7 +13,7 @@ from ReplayBuffers.path_replay_buffer import PathBuffer
 from networks.mlp import ContinuousMLPQFunction
 from skill_discovery.METRA.metra import METRA
 from RL.algos.sac import SAC
-from networks.cnn import Encoder, WithEncoder
+from networks.cnn import Encoder, ConcatEncoder, WithEncoder
 from networks.parameter import ParameterModule
 from gym.vector import AsyncVectorEnv
 from copy import deepcopy
@@ -46,7 +46,7 @@ def fetch_config():
     return config
 
 
-def make_env(env_name, use_encoder, max_path_length, seed, frame_stack, normalizer_type):
+def make_env(env_name, encoder, max_path_length, seed, frame_stack, normalizer_type):
     if env_name == 'maze':
         from envs.maze_env import MazeEnv
         env = MazeEnv(
@@ -64,7 +64,7 @@ def make_env(env_name, use_encoder, max_path_length, seed, frame_stack, normaliz
     elif env_name.startswith('dmc'):
         from envs.custom_dmc_tasks import dmc
         from envs.custom_dmc_tasks.pixel_wrappers import RenderWrapper
-        assert use_encoder  # Only support pixel-based environments
+        assert encoder in ['cnn']  # Only support pixel-based environments
         if env_name == 'dmc_cheetah':
             env = dmc.make('cheetah_run_forward_color', obs_type='states', frame_stack=1, action_repeat=2, seed=seed)
             env = RenderWrapper(env)
@@ -79,7 +79,7 @@ def make_env(env_name, use_encoder, max_path_length, seed, frame_stack, normaliz
     elif env_name == 'kitchen':
         sys.path.append('lexa')
         from envs.lexa.mykitchen import MyKitchenEnv
-        assert use_encoder  # Only support pixel-based environments
+        assert encoder in ['cnn']  # Only support pixel-based environments
         assert seed is None, 'For some strange reason, this environment does not have any seed...'
         env = MyKitchenEnv(log_per_goal=True)
     else:
@@ -92,11 +92,15 @@ def make_env(env_name, use_encoder, max_path_length, seed, frame_stack, normaliz
     normalizer_kwargs = {}
 
     if normalizer_type == 'off':
-        env = consistent_normalize(env, normalize_obs=False, **normalizer_kwargs)
+        env = consistent_normalize(env, normalize_obs = False, **normalizer_kwargs)
+    elif normalizer_type == 'squashed':
+        env = consistent_normalize(env, flatten_obs = False, normalize_obs = True, 
+                                   mean = 255. / 2, std = 255. / 2)
     elif normalizer_type == 'preset':
         normalizer_name = env_name
         normalizer_mean, normalizer_std = get_normalizer_preset(f'{normalizer_name}_preset')
-        env = consistent_normalize(env, normalize_obs=True, mean=normalizer_mean, std=normalizer_std, **normalizer_kwargs)
+        env = consistent_normalize(env, normalize_obs = True, mean = normalizer_mean, std = normalizer_std, 
+                                   **normalizer_kwargs)
 
     return env
 
@@ -115,41 +119,22 @@ def fetch_dist_type(class_name):
         return TanhNormal
 
 
-def get_pixel_shape(env):
-    if hasattr(env, 'ob_info'):
-        assert env.ob_info['type'] in ['hybrid', 'pixel'], 'Only this two modes are supported'
-        pixel_shape = env.ob_info['pixel_shape']
-    else:
-        pixel_shape = (64, 64, 3)
-    return pixel_shape
-
-
-def make_encoder(pixel_shape, **kwargs):
-    return Encoder(pixel_shape = pixel_shape, **kwargs)
-
-
-def with_encoder(pixel_shape, module, encoder=None):
-    if encoder is None:
-        encoder = Encoder(pixel_shape = pixel_shape)
-    return WithEncoder(encoder = encoder, module = module)
-
-
-def build_policy_net(env, use_encoder, policy_net_config):
+def build_policy_net(env, encoder, policy_net_config):
     obs_dim, action_dim = env.spec.observation_space.flat_dim, env.spec.action_space.flat_dim
-    pixel_shape = None
     
-    if use_encoder:
-        example_ob = env.reset()
-        pixel_shape = get_pixel_shape(env)
+    if encoder == 'cnn':
+        example_ob = np.transpose(env.reset(), [2, 0, 1])
+        depth = example_ob.shape[0]
 
-        example_encoder = make_encoder(pixel_shape = pixel_shape)
-        module_obs_dim = example_encoder(torch.as_tensor(example_ob).float().unsqueeze(0)).shape[-1]
-        del example_encoder
-    else:
-        module_obs_dim = obs_dim
+        encoder = Encoder(pixel_depth = depth, obs_key = 'obs', concat_keys = ['option'])
+        example_ob = {'obs': torch.as_tensor(example_ob).float().unsqueeze(0), 
+                      'option': torch.zeros((1, policy_net_config.dim_option))}
+        module_obs_dim = encoder(example_ob).shape[-1]
+    elif encoder == 'concat':
+        encoder = ConcatEncoder(obs_key = 'obs', concat_keys = ['option'])
+        module_obs_dim = obs_dim + policy_net_config.dim_option
     
-    obs_and_option_dim = module_obs_dim + policy_net_config.dim_option
-    policy_module = GaussianMLPTwoHeadedModule(input_dim = obs_and_option_dim, output_dim = action_dim, 
+    policy_module = GaussianMLPTwoHeadedModule(input_dim = module_obs_dim, output_dim = action_dim, 
                                                hidden_sizes = policy_net_config.hidden_sizes, 
                                                layer_normalization = policy_net_config.layer_normalization,
                                                hidden_nonlinearity = fetch_activation(policy_net_config.nonlinearity), 
@@ -157,22 +142,24 @@ def build_policy_net(env, use_encoder, policy_net_config):
                                                init_std = np.exp(policy_net_config.distribution.starting_logstd),
                                                normal_distribution_cls = fetch_dist_type(policy_net_config.distribution.type),
                                                output_w_init = functools.partial(xavier_normal, gain=1.))
-    if use_encoder:
-        policy_module = with_encoder(pixel_shape=pixel_shape, module = policy_module)
+    
+    policy_module = WithEncoder(encoder = encoder, module = policy_module)
+    return Policy(name = policy_net_config.name, module = policy_module)
 
-    return Policy(name = policy_net_config.name, module = policy_module), pixel_shape
 
-
-def build_trajectory_encoder(env, use_encoder, trajectory_net_config):
+def build_trajectory_encoder(env, encoder, trajectory_net_config):
     obs_dim = env.spec.observation_space.flat_dim
-    if use_encoder:
-        example_ob = env.reset()
-        pixel_shape = get_pixel_shape(env)
 
-        example_encoder = make_encoder(pixel_shape = pixel_shape)
-        module_obs_dim = example_encoder(torch.as_tensor(example_ob).float().unsqueeze(0)).shape[-1]
-        del example_encoder
-    else:
+    if encoder == 'cnn':
+        example_ob = np.transpose(env.reset(), [2, 0, 1])
+        depth = example_ob.shape[0]
+
+        encoder = Encoder(pixel_depth = depth, obs_key = 'obs', concat_keys = [], 
+                          spectral_normalization=trajectory_net_config.spectral_normalization)
+        example_ob = {'obs': torch.as_tensor(example_ob).float().unsqueeze(0)}
+        module_obs_dim = encoder(example_ob).shape[-1]
+    elif encoder == 'concat':
+        encoder = ConcatEncoder(obs_key = 'obs', concat_keys = [])
         module_obs_dim = obs_dim
 
     traj_encoder = GaussianMLPIndependentStdModule(hidden_sizes = trajectory_net_config.hidden_sizes, 
@@ -191,30 +178,31 @@ def build_trajectory_encoder(env, use_encoder, trajectory_net_config):
                                                    input_dim = module_obs_dim, 
                                                    output_dim = trajectory_net_config.dim_option,
                                                    spectral_normalization = trajectory_net_config.spectral_normalization)
-    if use_encoder:
-        image_encoder = make_encoder(pixel_shape = pixel_shape, 
-                                     spectral_normalization = trajectory_net_config.spectral_normalization)
-        traj_encoder = with_encoder(pixel_shape=None, module = traj_encoder, encoder = image_encoder)
+    
+    traj_encoder = WithEncoder(module = traj_encoder, encoder = encoder)
     return traj_encoder
 
 
-def build_q_net(env, use_encoder, q_net_config):
+def build_q_net(env, encoder, q_net_config):
     obs_dim, action_dim = env.spec.observation_space.flat_dim, env.spec.action_space.flat_dim
-    if use_encoder:
-        example_ob = env.reset()
-        pixel_shape = get_pixel_shape(env)
 
-        example_encoder = make_encoder(pixel_shape = pixel_shape)
-        module_obs_dim = example_encoder(torch.as_tensor(example_ob).float().unsqueeze(0)).shape[-1]
-        del example_encoder
-    else:
-        module_obs_dim = obs_dim
-    obs_and_option_dim = module_obs_dim + q_net_config.dim_option
-    q = ContinuousMLPQFunction(obs_dim = obs_and_option_dim, action_dim = action_dim, 
+    if encoder == 'cnn':
+        example_ob = np.transpose(env.reset(), [2, 0, 1])
+        depth = example_ob.shape[0]
+
+        encoder = Encoder(pixel_depth = depth, obs_key = 'obs', concat_keys = ['option'])
+        example_ob = {'obs': torch.as_tensor(example_ob).float().unsqueeze(0), 
+                      'option': torch.zeros((1, q_net_config.dim_option))}
+        module_obs_dim = encoder(example_ob).shape[-1]
+    elif encoder == 'concat':
+        encoder = ConcatEncoder(obs_key = 'obs', concat_keys = ['option'])
+        module_obs_dim = obs_dim + q_net_config.dim_option
+
+    q = ContinuousMLPQFunction(obs_dim = module_obs_dim, action_dim = action_dim, 
                                hidden_sizes = q_net_config.hidden_sizes,
                                hidden_nonlinearity = fetch_activation(q_net_config.nonlinearity))
-    if use_encoder:
-        q = with_encoder(pixel_shape, q)
+    
+    q = WithEncoder(module = q, encoder = encoder)
     return q
     
 
@@ -240,16 +228,16 @@ def run():
 
     set_seed(config.globals.seed)
     make_seeded_env = functools.partial(make_env, env_name = config.env.name, 
-                                        use_encoder = config.globals.use_encoder,
-                                        max_path_length=config.env.max_path_length,
+                                        encoder = config.globals.encoder,
+                                        max_path_length = config.env.max_path_length,
                                         frame_stack = config.env.frame_stack, 
                                         normalizer_type = config.env.normalizer_type)
     env = make_seeded_env(seed = config.globals.seed)
 
-    option_policy, pixel_shape = build_policy_net(env, use_encoder = config.globals.use_encoder, 
+    option_policy = build_policy_net(env, encoder = config.globals.encoder, 
                                      policy_net_config = config.rl_algo.policy)
 
-    traj_encoder = build_trajectory_encoder(env, use_encoder = config.globals.use_encoder,
+    traj_encoder = build_trajectory_encoder(env, encoder = config.globals.encoder,
                                             trajectory_net_config = config.skill.trajectory_encoder)
     dist_predictor = None
     skill_dynamics = None
@@ -268,10 +256,12 @@ def run():
         ]),
     }
 
+    pixel_keys = ['obs', 'next_obs'] if config.env.name in ['dmc_cheetah', 'dmc_quadruped', 'dmc_humanoid'] else []
     replay_buffer = PathBuffer(capacity_in_transitions = int(config.replay_buffer.max_transitions), 
-                               pixel_shape = pixel_shape, discount = config.replay_buffer.discount)
-    qf1, qf2 = build_q_net(env, config.globals.use_encoder, config.rl_algo.critics),\
-        build_q_net(env, config.globals.use_encoder, config.rl_algo.critics)
+                               pixel_keys = pixel_keys, discount = config.replay_buffer.discount)
+    
+    qf1, qf2 = build_q_net(env, encoder = config.globals.encoder, q_net_config = config.rl_algo.critics),\
+        build_q_net(env, encoder = config.globals.encoder, q_net_config = config.rl_algo.critics)
         
     log_alpha = ParameterModule(torch.Tensor([np.log(config.rl_algo.alpha.value)]))
     optimizers.update({
@@ -353,13 +343,13 @@ def collect_trajectories(env, agent, trajectories_length, trajectories_qty = Non
     for pseudoepisode in range(pseudoepisodes):
         cur_options = np.array([options[pseudoepisode * env_qty + i]['option'] for i in range(env_qty)])
         prev_obs = env.reset()
-        prev_obs, prev_obs_shape = flatten_obs(prev_obs)
+        prev_obs = np.transpose(prev_obs, [0, 3, 1, 2]) if len(prev_obs.shape) == 4 else prev_obs
         prev_dones = np.full((env_qty,), fill_value=False)
         for i in range(trajectories_length):
-            obs_and_option = np.concatenate([prev_obs, cur_options], axis = 1)
+            obs_and_option = {'obs': prev_obs, 'option': cur_options}
             action, action_info = agent.policy['option_policy'].get_actions(obs_and_option)
             next_obs, rewards, dones, env_infos = env.step(action) # TODO pass render here. When switched from pointmaze to ant.
-            next_obs, next_obs_shape = flatten_obs(next_obs)
+            next_obs = np.transpose(next_obs, [0, 3, 1, 2]) if len(next_obs.shape) == 4 else next_obs
             if (i == trajectories_length - 1):
                 dones = np.full((env_qty,), fill_value = True)
             for i, done in enumerate(prev_dones):
@@ -383,12 +373,14 @@ def collect_trajectories(env, agent, trajectories_length, trajectories_qty = Non
             prev_dones = np.logical_or(prev_dones, dones)
     return generated_trajectories
 
-def prepare_batch(batch, device='cuda'):
+def prepare_batch(batch, device = 'cuda'):
     data = {}
     for key, value in batch.items():
         if value.shape[1] == 1 and 'option' not in key:
             value = np.squeeze(value, axis=1)
         data[key] = torch.from_numpy(value).float().to(device)
+    data['obs'] = {'obs': data['obs'], 'option': data['options']}
+    data['next_obs'] = {'obs': data['next_obs'], 'option': data['next_options']}
     return data
 
 def train_cycle(trainer_config, agent, skill_model, replay_buffer, make_env_fn, seed, 
@@ -402,8 +394,8 @@ def train_cycle(trainer_config, agent, skill_model, replay_buffer, make_env_fn, 
                             trajectories_qty = trainer_config.traj_batch_size, 
                             trajectories_length = trainer_config.max_path_length)
         replay_buffer.update_replay_buffer(trajs)
-        if replay_buffer.n_transitions_stored < trainer_config.transitions_before_training:
-            continue 
+        if replay_buffer.n_transitions_stored > trainer_config.transitions_before_training: # CHANGE
+            continue
         for _ in range(trainer_config.trans_optimization_epochs):
             batch = replay_buffer.sample_transitions(batch_size = trainer_config.batch_size)
             batch = prepare_batch(batch)
@@ -411,13 +403,14 @@ def train_cycle(trainer_config, agent, skill_model, replay_buffer, make_env_fn, 
             logs.update(agent.optimize_op(modified_batch))
         if i % 50 == 0:
             comet_logger.log_metrics(logs)
-        if i % 250 == 20:
+        if i % 250 == 0:
             eval_metrics(eval_env, make_env_fn(seed = 0), agent, skill_model, num_random_trajectories = 48,
-                            sample_processor = replay_buffer.preprocess_data, device = "cuda:0", comet_logger = comet_logger)
+                            sample_processor = replay_buffer.preprocess_data, example_env_name = make_env_fn.keywords['env_name'],
+                            device = "cuda:0", comet_logger = comet_logger)
 
 
 def eval_metrics(env, example_env, agent, skill_model, num_random_trajectories, 
-                 sample_processor, device, comet_logger):
+                 sample_processor, example_env_name, device, comet_logger):
     if skill_model.discrete:
         eye_options = np.eye(skill_model.dim_option)
         random_options = []
@@ -458,6 +451,7 @@ def eval_metrics(env, example_env, agent, skill_model, num_random_trajectories,
 
     data = sample_processor(random_trajectories)
     last_obs = torch.stack([torch.from_numpy(ob[-1]).to(device) for ob in data['obs']]).float()
+    last_obs = {'obs': last_obs}
     option_dists = skill_model.traj_encoder(last_obs)
 
     option_means = option_dists.mean.detach().cpu().numpy()
@@ -499,17 +493,32 @@ def eval_metrics(env, example_env, agent, skill_model, num_random_trajectories,
     video_options = [{'option': opt} for opt in video_options]
     video_trajectories = collect_trajectories(env = env, agent = agent, trajectories_length = 200, 
                                               options = video_options, render = True)
-    """
-    path_to_video = record_video(video_trajectories, skip_frames=2)
+    video_trajectories = fetch_frames(video_trajectories, example_env = example_env, env_name = example_env_name)
+    path_to_video = record_video(video_trajectories, skip_frames = 2)
     comet_logger.log_video(file = path_to_video, name = 'Skill videos')
-    """
+    
     comet_logger.log_metrics(example_env.calc_eval_metrics(random_trajectories, is_option_trajectories=True))
     example_env.close()
 
-def flatten_obs(obs):
-    old_shape = obs.shape
-    return obs.reshape((obs.shape[0], -1)), old_shape
-    
+def fetch_frames(trajectories, example_env, env_name):
+    states = [trajectories[i]['observations'] for i in range(len(trajectories))]
+    actions = [trajectories[i]['actions'] for i in range(len(trajectories))]
+    if env_name in ['dmc_cheetah', 'dmc_quadruped', 'dmc_humanoid']:
+        return (np.array(states) * (255 / 2) + (255 / 2)).astype(np.uint8)
+    unwrapped_example_env = example_env.unwrapped
+
+    video = []
+    if env_name == 'ant':
+        for i, traj in enumerate(states):
+            video.append([])
+            for j, step in enumerate(traj):
+                if j == 0:
+                    unwrapped_example_env.reset()
+                unwrapped_example_env.step(actions[i][j])
+                video[-1].append(unwrapped_example_env.render(mode = 'rgb_array', width = 100, height = 100))
+    return np.array(video)
+
+
 if __name__ == '__main__':
     matplotlib.use('Agg')
     run()

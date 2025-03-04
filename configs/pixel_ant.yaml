@@ -1,9 +1,9 @@
 globals:
-  use_encoder: true
+  encoder: 'cnn'
 
 env:
   name: "dmc_quadruped"
-  normalizer_type: "off"
+  normalizer_type: "squashed"
   frame_stack: 3
 
 trainer_args:

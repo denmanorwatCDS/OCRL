@@ -57,19 +57,11 @@ class SAC:
         return get_torch_concat_obs(obs, option)
 
     def optimize_op(self, modified_batch):
-        processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(modified_batch['obs']), 
-                                                 modified_batch['options'])
-        next_processed_cat_obs = self._get_concat_obs(self.option_policy.process_observations(modified_batch['next_obs']), 
-                                                      modified_batch['next_options'])
-        modified_batch.update({
-            'processed_cat_obs': processed_cat_obs,
-            'next_processed_cat_obs': next_processed_cat_obs,
-        })
 
         logs = self._update_loss_qf(
-            obs=processed_cat_obs,
+            obs=modified_batch['obs'],
             actions=modified_batch['actions'],
-            next_obs=next_processed_cat_obs,
+            next_obs=modified_batch['next_obs'],
             dones=modified_batch['dones'],
             rewards=modified_batch['rewards'] * self._reward_scale_factor,
             policy=self.option_policy,
@@ -79,7 +71,7 @@ class SAC:
             optimizer_keys=['qf'],
         )
         
-        logs.update(self._update_loss_sacp(modified_batch, obs=processed_cat_obs,))
+        logs.update(self._update_loss_sacp(modified_batch, obs=modified_batch['obs'],))
         self._gradient_descent(
             logs['LossSacp'],
             optimizer_keys=['option_policy'],

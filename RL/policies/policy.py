@@ -51,8 +51,9 @@ class Policy(torch.nn.Module):
 
     def get_mode_actions(self, observations):
         with torch.no_grad():
-            if not isinstance(observations, torch.Tensor):
-                observations = torch.as_tensor(observations).float().to(next(self.parameters()).device)
+            for key in observations.keys():
+                if not isinstance(observations[key], torch.Tensor):
+                    observations[key] = torch.as_tensor(observations[key]).float().to(next(self.parameters()).device)
             samples, info = self.forward_mode(observations)
             return samples.cpu().numpy(), {
                 k: v.detach().cpu().numpy()
@@ -61,8 +62,9 @@ class Policy(torch.nn.Module):
 
     def get_sample_actions(self, observations):
         with torch.no_grad():
-            if not isinstance(observations, torch.Tensor):
-                observations = torch.as_tensor(observations).float().to(next(self.parameters()).device)
+            for key in observations.keys():
+                if not isinstance(observations[key], torch.Tensor):
+                    observations[key] = torch.as_tensor(observations[key]).float().to(next(self.parameters()).device)
             dist, info = self.forward(observations)
             if isinstance(dist, TanhNormal):
                 pre_tanh_values, actions = dist.rsample_with_pre_tanh_value()
@@ -86,7 +88,7 @@ class Policy(torch.nn.Module):
             return actions, infos
 
     def get_actions(self, observations):
-        assert isinstance(observations, np.ndarray) or isinstance(observations, torch.Tensor)
+        assert isinstance(observations, dict)
         if self._force_use_mode_actions:
             actions, info = self.get_mode_actions(observations)
         else:

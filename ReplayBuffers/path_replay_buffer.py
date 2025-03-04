@@ -31,7 +31,7 @@ class PathBuffer:
 
     """
 
-    def __init__(self, capacity_in_transitions, pixel_shape, discount):
+    def __init__(self, capacity_in_transitions, pixel_keys, discount):
         self._capacity = capacity_in_transitions
         self._transitions_stored = 0
         self._first_idx_of_next_path = 0
@@ -43,11 +43,7 @@ class PathBuffer:
         self._path_segments = collections.deque()
         self._buffer = {}
 
-        if pixel_shape is not None:
-            self._pixel_dim = np.prod(pixel_shape)
-        else:
-            self._pixel_dim = None
-        self._pixel_keys = ['obs', 'next_obs']
+        self._pixel_keys = pixel_keys
 
     def add_path(self, path):
         """Add a path to the buffer.
@@ -70,20 +66,9 @@ class PathBuffer:
             self._path_segments.popleft()
         self._path_segments.append((first_seg, second_seg))
         for key, array in path.items():
-            if self._pixel_dim is not None and key in self._pixel_keys:
-                pixel_key = f'{key}_pixel'
-                state_key = f'{key}_state'
-                if pixel_key not in self._buffer:
-                    self._buffer[pixel_key] = np.random.randint(0, 255, (self._capacity, self._pixel_dim), dtype=np.uint8)  # For memory preallocation
-                    self._buffer[state_key] = np.zeros((self._capacity, array.shape[1] - self._pixel_dim), dtype=array.dtype)
-                self._buffer[pixel_key][first_seg.start:first_seg.stop] = array[:len(first_seg), :self._pixel_dim]
-                self._buffer[state_key][first_seg.start:first_seg.stop] = array[:len(first_seg), self._pixel_dim:]
-                self._buffer[pixel_key][second_seg.start:second_seg.stop] = array[len(first_seg):, :self._pixel_dim]
-                self._buffer[state_key][second_seg.start:second_seg.stop] = array[len(first_seg):, self._pixel_dim:]
-            else:
-                buf_arr = self._get_or_allocate_key(key, array)
-                buf_arr[first_seg.start:first_seg.stop] = array[:len(first_seg)]
-                buf_arr[second_seg.start:second_seg.stop] = array[len(first_seg):]
+            buf_arr = self._get_or_allocate_key(key, array)
+            buf_arr[first_seg.start:first_seg.stop] = array[:len(first_seg)]
+            buf_arr[second_seg.start:second_seg.stop] = array[len(first_seg):]
         if second_seg.stop != 0:
             self._first_idx_of_next_path = second_seg.stop
         else:
@@ -102,23 +87,11 @@ class PathBuffer:
 
         """
         idx = np.random.choice(self._transitions_stored, batch_size)
-        if self._pixel_dim is not None:
-            ret_dict = {}
-            keys = set(self._buffer.keys())
-            for key in self._pixel_keys:
-                pixel_key = f'{key}_pixel'
-                state_key = f'{key}_state'
-                keys.remove(pixel_key)
-                keys.remove(state_key)
-                if self._buffer[state_key].shape[1] != 0:
-                    ret_dict[key] = np.concatenate([self._buffer[pixel_key][idx], self._buffer[state_key][idx]], axis=1)
-                else:
-                    ret_dict[key] = self._buffer[pixel_key][idx]
-            for key in keys:
-                ret_dict[key] = self._buffer[key][idx]
-            return ret_dict
-        else:
-            return {key: buf_arr[idx] for key, buf_arr in self._buffer.items()}
+        batch = {key: buf_arr[idx] for key, buf_arr in self._buffer.items()}
+        for key in self._pixel_keys:
+            batch[key] = (batch[key] - (255 / 2)) / (255 / 2)
+            
+        return batch
 
     def _next_path_segments(self, n_indices):
         """Compute where the next path should be stored.
@@ -156,7 +129,7 @@ class PathBuffer:
         """
         buf_arr = self._buffer.get(key, None)
         if buf_arr is None:
-            buf_arr = np.zeros((self._capacity, array.shape[1]), array.dtype)
+            buf_arr = np.zeros((self._capacity,) + array.shape[1:], array.dtype)
             self._buffer[key] = buf_arr
         return buf_arr
 
@@ -170,6 +143,17 @@ class PathBuffer:
     def preprocess_data(self, paths):
         data = collections.defaultdict(list)
         for path in paths:
+
+            if 'obs' in self._pixel_keys:
+                assert np.bitwise_and(np.all(path['observations'] > -1.01), np.all(path['observations'] < 1.01)),\
+                    'Expected normalized images'
+                path['observations'] = ((path['observations'] * 255 / 2) + 255 / 2).astype(np.uint8)
+
+            if 'next_obs' in self._pixel_keys:
+                assert np.bitwise_and(np.all(path['next_observations'] > -1.01), np.all(path['next_observations'] < 1.01)),\
+                    'Expected normalized images'
+                path['next_observations'] = ((path['next_observations'] * 255 / 2) + 255 / 2).astype(np.uint8)
+
             data['obs'].append(path['observations'])
             data['next_obs'].append(path['next_observations'])
             data['actions'].append(path['actions'])
@@ -185,11 +169,11 @@ class PathBuffer:
             if 'option' in path['agent_infos']:
                 data['options'].append(path['agent_infos']['option'])
                 data['next_options'].append(np.concatenate([path['agent_infos']['option'][1:], path['agent_infos']['option'][-1:]], axis=0))
-
+        
         return data
 
     def update_replay_buffer(self, data):
-        data = self.preprocess_data(data)
+        data = dict(self.preprocess_data(data))
         for i in range(len(data['actions'])):
             path = {}
             for key in data.keys():
