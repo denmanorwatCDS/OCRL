@@ -394,7 +394,7 @@ def train_cycle(trainer_config, agent, skill_model, replay_buffer, make_env_fn, 
                             trajectories_qty = trainer_config.traj_batch_size, 
                             trajectories_length = trainer_config.max_path_length)
         replay_buffer.update_replay_buffer(trajs)
-        if replay_buffer.n_transitions_stored > trainer_config.transitions_before_training: # CHANGE
+        if replay_buffer.n_transitions_stored < trainer_config.transitions_before_training:
             continue
         for _ in range(trainer_config.trans_optimization_epochs):
             batch = replay_buffer.sample_transitions(batch_size = trainer_config.batch_size)
