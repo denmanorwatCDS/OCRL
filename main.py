@@ -395,7 +395,7 @@ def train_cycle(trainer_config, agent, skill_model, replay_buffer, make_env_fn, 
                             trajectories_qty = trainer_config.traj_batch_size, 
                             trajectories_length = trainer_config.max_path_length)
         for traj in trajs:
-            cur_step += len(traj)
+            cur_step += len(traj['observations'])
         replay_buffer.update_replay_buffer(trajs)
         if replay_buffer.n_transitions_stored < trainer_config.transitions_before_training:
             continue
@@ -404,9 +404,9 @@ def train_cycle(trainer_config, agent, skill_model, replay_buffer, make_env_fn, 
             batch = prepare_batch(batch)
             logs, modified_batch = skill_model.train_components(batch)
             logs.update(agent.optimize_op(modified_batch))
-        if i % 50 == 0:
+        if i % 50 == 7:
             comet_logger.log_metrics(logs, step = cur_step)
-        if i % 250 == 0:
+        if i % 250 == 7:
             eval_metrics(eval_env, make_env_fn(seed = 0), agent, skill_model, num_random_trajectories = 48,
                             sample_processor = replay_buffer.preprocess_data, example_env_name = make_env_fn.keywords['env_name'],
                             device = "cuda:0", comet_logger = comet_logger, step = cur_step)
