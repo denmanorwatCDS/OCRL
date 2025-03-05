@@ -389,10 +389,13 @@ def train_cycle(trainer_config, agent, skill_model, replay_buffer, make_env_fn, 
                         context = "spawn")
     eval_env = AsyncVectorEnv([lambda: make_env_fn(seed = (seed + i)) for i in range(trainer_config.n_parallel)],
                                 context = "spawn")
+    cur_step = 0
     for i in range(trainer_config.n_epochs):
         trajs = collect_trajectories(env = env, agent = agent, skill_model = skill_model, 
                             trajectories_qty = trainer_config.traj_batch_size, 
                             trajectories_length = trainer_config.max_path_length)
+        for traj in trajs:
+            cur_step += len(traj)
         replay_buffer.update_replay_buffer(trajs)
         if replay_buffer.n_transitions_stored < trainer_config.transitions_before_training:
             continue
@@ -402,15 +405,15 @@ def train_cycle(trainer_config, agent, skill_model, replay_buffer, make_env_fn, 
             logs, modified_batch = skill_model.train_components(batch)
             logs.update(agent.optimize_op(modified_batch))
         if i % 50 == 0:
-            comet_logger.log_metrics(logs)
+            comet_logger.log_metrics(logs, step = cur_step)
         if i % 250 == 0:
             eval_metrics(eval_env, make_env_fn(seed = 0), agent, skill_model, num_random_trajectories = 48,
                             sample_processor = replay_buffer.preprocess_data, example_env_name = make_env_fn.keywords['env_name'],
-                            device = "cuda:0", comet_logger = comet_logger)
+                            device = "cuda:0", comet_logger = comet_logger, step = cur_step)
 
 
 def eval_metrics(env, example_env, agent, skill_model, num_random_trajectories, 
-                 sample_processor, example_env_name, device, comet_logger):
+                 sample_processor, example_env_name, device, comet_logger, step):
     if skill_model.discrete:
         eye_options = np.eye(skill_model.dim_option)
         random_options = []
@@ -447,7 +450,7 @@ def eval_metrics(env, example_env, agent, skill_model, num_random_trajectories,
     skill_img = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
     skill_img = skill_img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
     ax.clear(), plt.close(fig)
-    comet_logger.log_image(image_data = skill_img, name = "Skill trajs")
+    comet_logger.log_image(image_data = skill_img, name = "Skill trajs", step = step)
 
     data = sample_processor(random_trajectories)
     last_obs = torch.stack([torch.from_numpy(ob[-1]).to(device) for ob in data['obs']]).float()
@@ -468,7 +471,7 @@ def eval_metrics(env, example_env, agent, skill_model, num_random_trajectories,
     phi_img = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
     phi_img = phi_img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
     ax.clear(), plt.close(fig)
-    comet_logger.log_image(image_data = phi_img, name = "Phi plot")
+    comet_logger.log_image(image_data = phi_img, name = "Phi plot", step = step)
     agent.option_policy._force_use_mode_actions = False
 
     # Videos
@@ -495,9 +498,9 @@ def eval_metrics(env, example_env, agent, skill_model, num_random_trajectories,
                                               options = video_options, render = True)
     video_trajectories = fetch_frames(video_trajectories, example_env = example_env, env_name = example_env_name)
     path_to_video = record_video(video_trajectories, skip_frames = 2)
-    comet_logger.log_video(file = path_to_video, name = 'Skill videos')
+    comet_logger.log_video(file = path_to_video, name = 'Skill videos', step = step)
     
-    comet_logger.log_metrics(example_env.calc_eval_metrics(random_trajectories, is_option_trajectories=True))
+    comet_logger.log_metrics(example_env.calc_eval_metrics(random_trajectories, is_option_trajectories=True), step = step)
     example_env.close()
 
 def fetch_frames(trajectories, example_env, env_name):
