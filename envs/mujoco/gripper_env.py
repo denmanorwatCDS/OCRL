@@ -46,6 +46,7 @@ class MultipleFetchPickAndPlaceEnv(MujocoTrait, utils.EzPickle):
         self.object_qty = object_qty
         self.with_repeat = with_repeat
         self.seed(seed)
+        print(sys.argv[0])
         self.path_to_xmls_folder = sys.argv[0][:-8] + '/env_xmls/' + str(datetime.datetime.now()).replace(' ', '_')
         os.mkdir(self.path_to_xmls_folder)
 
