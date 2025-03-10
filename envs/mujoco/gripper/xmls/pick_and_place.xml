@@ -3,12 +3,12 @@
 	<visual>
     	<quality offsamples="0"/>
   	</visual>
-	<compiler angle="radian" coordinate="local" meshdir="../stls/fetch" texturedir="../textures"></compiler>
+	<compiler angle="radian" coordinate="local" meshdir="../../envs/mujoco/gripper/stls/fetch" texturedir="../../envs/mujoco/gripper/textures"></compiler>
 	<option timestep="0.002">
 		<flag warmstart="enable"></flag>
 	</option>
 
-	<include file="shared.xml"></include>
+	<include file="../../envs/mujoco/gripper/xmls/shared.xml"></include>
 	
 	<worldbody>
 		<geom name="floor0" pos="0.8 0.75 0" size="0.85 0.7 1" type="plane" condim="3" material="floor_mat"></geom>
@@ -16,7 +16,7 @@
 			<site name="target0" pos="0 0 0.5" size="0.02 1." rgba="0 0 0 0.2" type="cylinder"></site>
 		</body>
 
-		<include file="robot.xml"></include>
+		<include file="../../envs/mujoco/gripper/xmls/robot.xml"></include>
 		
 		<body pos="1.3 0.75 0.2" name="table0">
 			<geom size="0.25 0.35 0.2" type="box" mass="2000" material="table_mat" name="table0"></geom>

@@ -9,6 +9,8 @@ import copy
 from gym.utils import seeding
 from envs.mujoco.mujoco_utils import MujocoTrait
 import datetime
+import sys
+import string
 
 DEFAULT_SIZE = 500
 
@@ -44,6 +46,9 @@ class MultipleFetchPickAndPlaceEnv(MujocoTrait, utils.EzPickle):
         self.object_qty = object_qty
         self.with_repeat = with_repeat
         self.seed(seed)
+        self.path_to_xmls_folder = sys.argv[0][:-8] + '/env_xmls/' + str(datetime.datetime.now()).replace(' ', '_')
+        os.mkdir(self.path_to_xmls_folder)
+
         self.created_object_names, self.goal = self._initialize_sim()
         
         self.initial_state = copy.deepcopy(self.sim.get_state())
@@ -133,7 +138,7 @@ class MultipleFetchPickAndPlaceEnv(MujocoTrait, utils.EzPickle):
                         radius, height = childs_child.attrib['size'].split(' ')
                         childs_child.attrib['size'] = str(self.distance_threshold) + ' ' + height
 
-        env_xml_path = os.path.join(os.path.dirname(__file__), 'gripper', 'xmls', 'env{}.xml'.\
+        env_xml_path = os.path.join(self.path_to_xmls_folder, 'env{}.xml'.\
                                     format(self.seed()[0]))
         self.env_xml_path = env_xml_path
         if os.path.exists(env_xml_path):
