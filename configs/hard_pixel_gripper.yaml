@@ -1,0 +1,24 @@
+globals:
+  encoder: 'cnn'
+
+env:
+  name: "pixel_gripper"
+  normalizer_type: "squashed"
+  frame_stack: 3
+  env_kwargs: 
+    object_qty: 4
+    object_names: ['ball', 'box', 'desk', 'hammer']
+    obs_type: 'pixels'
+
+trainer_args:
+  n_parallel: 4
+  traj_batch_size: 8
+  trans_optimization_epochs: 200
+
+replay_buffer:
+  max_transitions: 300000
+
+skill:
+  name: "metra"
+  discrete: false
+  dim_option: 4
