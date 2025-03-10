@@ -79,6 +79,14 @@ class ConsistentNormalizedEnv(AkroWrapperTrait, gym.Wrapper):
 
         return next_obs, reward, done, info
 
+    @property
+    def unwrapped(self):
+        """Completely unwrap this env.
+
+        Returns:
+            gym.Env: The base non-wrapped gym.Env instance
+        """
+        return self.env.unwrapped
 
 consistent_normalize = ConsistentNormalizedEnv
 

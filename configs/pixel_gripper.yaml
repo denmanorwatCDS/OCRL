@@ -2,10 +2,13 @@ globals:
   encoder: 'cnn'
 
 env:
-  name: "dmc_quadruped"
+  name: "pixel_gripper"
   normalizer_type: "squashed"
   frame_stack: 3
-  env_kwargs: null
+  env_kwargs: 
+    object_qty: 1
+    object_names: ['box']
+    obs_type: 'pixels'
 
 trainer_args:
   n_parallel: 4

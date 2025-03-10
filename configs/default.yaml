@@ -12,6 +12,7 @@ env:
   max_path_length: 200
   frame_stack: null
   normalizer_type: "off"
+  env_kwargs: null
 
 skill:
   name: 'METRA'

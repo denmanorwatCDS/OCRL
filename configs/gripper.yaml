@@ -1,7 +1,9 @@
 env:
-  name: "ant"
-  normalizer_type: "preset"
-  env_kwargs: null
+  name: "gripper"
+  normalizer_type: "off"
+  env_kwargs: 
+    object_qty: 1
+    object_names: ['box']
 
 trainer_args:
   traj_batch_size: 8

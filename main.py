@@ -46,7 +46,7 @@ def fetch_config():
     return config
 
 
-def make_env(env_name, encoder, max_path_length, seed, frame_stack, normalizer_type):
+def make_env(env_name, env_kwargs, encoder, max_path_length, seed, frame_stack, normalizer_type):
     if env_name == 'maze':
         from envs.maze_env import MazeEnv
         env = MazeEnv(
@@ -61,6 +61,14 @@ def make_env(env_name, encoder, max_path_length, seed, frame_stack, normalizer_t
         from envs.mujoco.ant_env import AntEnv
         env = AntEnv(render_hw=100)
         env.seed(seed = seed)
+    elif env_name == 'gripper':
+        from envs.mujoco.gripper_env import MultipleFetchPickAndPlaceEnv
+        env = MultipleFetchPickAndPlaceEnv(seed = seed, obs_type = 'state', object_qty = env_kwargs.object_qty,
+                                           object_names = env_kwargs.object_names)
+    elif env_name == 'pixel_gripper':
+        from envs.mujoco.gripper_env import MultipleFetchPickAndPlaceEnv
+        env = MultipleFetchPickAndPlaceEnv(seed = seed, obs_type = 'pixels', object_qty = env_kwargs.object_qty,
+                                           object_names = env_kwargs.object_names)
     elif env_name.startswith('dmc'):
         from envs.custom_dmc_tasks import dmc
         from envs.custom_dmc_tasks.pixel_wrappers import RenderWrapper
@@ -228,6 +236,7 @@ def run():
 
     set_seed(config.globals.seed)
     make_seeded_env = functools.partial(make_env, env_name = config.env.name, 
+                                        env_kwargs = config.env.env_kwargs,
                                         encoder = config.globals.encoder,
                                         max_path_length = config.env.max_path_length,
                                         frame_stack = config.env.frame_stack, 
@@ -256,7 +265,7 @@ def run():
         ]),
     }
 
-    pixel_keys = ['obs', 'next_obs'] if config.env.name in ['dmc_cheetah', 'dmc_quadruped', 'dmc_humanoid'] else []
+    pixel_keys = ['obs', 'next_obs'] if config.env.name in ['dmc_cheetah', 'dmc_quadruped', 'dmc_humanoid', 'pixel_gripper'] else []
     replay_buffer = PathBuffer(capacity_in_transitions = int(config.replay_buffer.max_transitions), 
                                pixel_keys = pixel_keys, discount = config.replay_buffer.discount)
     
@@ -328,10 +337,10 @@ def collect_trajectories(env, agent, trajectories_length, trajectories_qty = Non
     if options is None:
         options = skill_model._get_train_trajectories_kwargs(trajectories_qty)
     else:
-        assert (trajectories_qty is None) and (skill_model is None), """It is expected, that when using options, 
-        there are one trajectory per each option, and there is no need to sample new options"""
+        assert (trajectories_qty is None) and (skill_model is None), """ It is expected, that when using options, 
+        there are one trajectory per each option, and there is no need to sample new options """
         trajectories_qty = len(options)
-
+    
     env_qty = len(env.env_fns)
     assert trajectories_qty % len(env.env_fns) == 0, 'Not integer division'
     if isinstance(env, AsyncVectorEnv):
@@ -408,12 +417,14 @@ def train_cycle(trainer_config, agent, skill_model, replay_buffer, make_env_fn, 
             comet_logger.log_metrics(logs, step = cur_step)
         if i % 250 == 7:
             eval_metrics(eval_env, make_env_fn(seed = 0), agent, skill_model, num_random_trajectories = 48,
-                            sample_processor = replay_buffer.preprocess_data, example_env_name = make_env_fn.keywords['env_name'],
+                            sample_processor = replay_buffer.preprocess_data, 
+                            example_env_name = make_env_fn.keywords['env_name'],
+                            example_env_kwargs = make_env_fn.keywords['env_kwargs'],
                             device = "cuda:0", comet_logger = comet_logger, step = cur_step)
 
 
 def eval_metrics(env, example_env, agent, skill_model, num_random_trajectories, 
-                 sample_processor, example_env_name, device, comet_logger, step):
+                 sample_processor, example_env_name, example_env_kwargs, device, comet_logger, step):
     if skill_model.discrete:
         eye_options = np.eye(skill_model.dim_option)
         random_options = []
@@ -443,13 +454,20 @@ def eval_metrics(env, example_env, agent, skill_model, num_random_trajectories,
     print('Warning! In old version _action_noise_std was setting to None seemingly does not exist. Proceed with caution for new environments')
     random_trajectories = collect_trajectories(env = env, agent = agent, trajectories_length = 200, 
                                                options = random_options)
-    
-    fig, ax = plt.subplots()
+    if example_env_kwargs is not None:
+        fig, ax = plt.subplots(nrows = 1, ncols = (example_env_kwargs.object_qty + 1))
+    else:
+        fig, ax = plt.subplots(nrows = 1, ncols = 1)
     example_env.render_trajectories(random_trajectories, random_option_colors, None, ax)
     fig.canvas.draw()
     skill_img = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
     skill_img = skill_img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
-    ax.clear(), plt.close(fig)
+    if isinstance(ax, np.ndarray):
+        for a in ax:
+            a.clear()
+    else:
+        ax.clear()
+    plt.close(fig)
     comet_logger.log_image(image_data = skill_img, name = "Skill trajs", step = step)
 
     data = sample_processor(random_trajectories)
@@ -470,7 +488,7 @@ def eval_metrics(env, example_env, agent, skill_model, num_random_trajectories,
     fig.canvas.draw()
     phi_img = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
     phi_img = phi_img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
-    ax.clear(), plt.close(fig)
+    plt.close(fig), ax.clear()
     comet_logger.log_image(image_data = phi_img, name = "Phi plot", step = step)
     agent.option_policy._force_use_mode_actions = False
 
@@ -506,19 +524,24 @@ def eval_metrics(env, example_env, agent, skill_model, num_random_trajectories,
 def fetch_frames(trajectories, example_env, env_name):
     states = [trajectories[i]['observations'] for i in range(len(trajectories))]
     actions = [trajectories[i]['actions'] for i in range(len(trajectories))]
-    if env_name in ['dmc_cheetah', 'dmc_quadruped', 'dmc_humanoid']:
+    if env_name in ['dmc_cheetah', 'dmc_quadruped', 'dmc_humanoid', 'pixel_gripper']:
         return (np.transpose(np.array(states), [0, 1, 3, 4, 2]) * (255 / 2) + (255 / 2)).astype(np.uint8)
+
     unwrapped_example_env = example_env.unwrapped
 
     video = []
-    if env_name == 'ant':
+    if env_name in ['ant', 'gripper']:
         for i, traj in enumerate(states):
             video.append([])
             for j, step in enumerate(traj):
                 if j == 0:
                     unwrapped_example_env.reset()
                 unwrapped_example_env.step(actions[i][j])
-                video[-1].append(unwrapped_example_env.render(mode = 'rgb_array', width = 100, height = 100))
+                mode, width, height = 'rgb_array', 100, 100
+                if env_name == 'ant':
+                    video[-1].append(unwrapped_example_env.render(mode = mode, width = width, height = height))
+                elif env_name == 'gripper':
+                    video[-1].append(unwrapped_example_env.render({'mode': mode, 'width': width, 'height': height}))
     return np.array(video)
 
 

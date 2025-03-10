@@ -69,23 +69,24 @@ class MujocoTrait:
 
     def render_trajectories(self, trajectories, colors, plot_axis, ax):
         coordinates_trajectories = self._get_coordinates_trajectories(trajectories)
-        self.plot_trajectories(coordinates_trajectories, colors, plot_axis, ax)
+        for key in coordinates_trajectories.keys():
+            self.plot_trajectories(coordinates_trajectories[key], colors, plot_axis, ax[key])
 
     def _get_coordinates_trajectories(self, trajectories):
-        coordinates_trajectories = []
+        coordinates_trajectories = {0: []}
         for trajectory in trajectories:
             if trajectory['env_infos']['coordinates'].dtype == object:
-                coordinates_trajectories.append(np.concatenate([
+                coordinates_trajectories[0].append(np.concatenate([
                     np.concatenate(trajectory['env_infos']['coordinates'], axis=0),
                     [trajectory['env_infos']['next_coordinates'][-1][-1]],
                 ]))
             elif trajectory['env_infos']['coordinates'].ndim == 2:
-                coordinates_trajectories.append(np.concatenate([
+                coordinates_trajectories[0].append(np.concatenate([
                     trajectory['env_infos']['coordinates'],
                     [trajectory['env_infos']['next_coordinates'][-1]]
                 ]))
             elif trajectory['env_infos']['coordinates'].ndim > 2:
-                coordinates_trajectories.append(np.concatenate([
+                coordinates_trajectories[0].append(np.concatenate([
                     trajectory['env_infos']['coordinates'].reshape(-1, 2),
                     trajectory['env_infos']['next_coordinates'].reshape(-1, 2)[-1:]
                 ]))

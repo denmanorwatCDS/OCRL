@@ -1,0 +1,5 @@
+<body name="ball" pos="0.025 0.025 0.025">
+	<joint name="ball:joint" type="free" damping="0.01"></joint>
+	<geom size="0.025 0.025 0.025" type="sphere" condim="6" material="block_mat" mass="2" name="ball:ball"></geom>
+	<site name="ball" pos="0 0 0" size="0.02 0.02 0.02" rgba="1 0 0 1" type="sphere"></site>
+</body>

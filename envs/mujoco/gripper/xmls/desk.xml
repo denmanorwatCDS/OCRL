@@ -1,0 +1,11 @@
+<body name="desk" pos="0.025 0.025 0.025">
+	<joint name="desk:joint" type="free" damping="0.01"></joint>
+	<geom size="0.035 0.05 0.005" type="box" condim="3" material="block_mat" mass="2" name="desk:surface"></geom>
+	<body pos="0 -0.06 0.015"> 
+		<geom size="0.035 0.01 0.03" type="box" condim="3" mass="1" name="desk:left_leg"></geom>
+	</body>
+	<site name="desk" pos="0. -0.06 0.015" size="0.0099 0.0099 0.0099" rgba="1 0 0 1" type="sphere"></site>
+	<body pos="0 0.06 0.015"> 
+		<geom size="0.035 0.01 0.03" type="box" condim="3" mass="1" name="desk:right_leg"></geom>
+	</body>
+</body>
