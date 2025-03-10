@@ -8,6 +8,7 @@ from gym import error
 import copy
 from gym.utils import seeding
 from envs.mujoco.mujoco_utils import MujocoTrait
+import datetime
 
 DEFAULT_SIZE = 500
 

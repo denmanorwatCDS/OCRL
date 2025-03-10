@@ -1,4 +1,5 @@
 globals:
+  seed: 46
   encoder: 'cnn'
 
 env:

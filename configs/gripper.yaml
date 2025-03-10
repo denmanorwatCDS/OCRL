@@ -1,3 +1,6 @@
+global:
+  seed: 43
+
 env:
   name: "gripper"
   normalizer_type: "off"
