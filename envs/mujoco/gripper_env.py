@@ -282,18 +282,12 @@ class MultipleFetchPickAndPlaceEnv(MujocoTrait, utils.EzPickle):
         return obs
     
     def step(self, action):
-        print('Action: {}'.format(os.getpid()))
         action = np.clip(action, self.action_space.low, self.action_space.high)
-        print('Set action: {}'.format(os.getpid()))
         self._set_action(action)
-        print('Previous obs: {}'.format(os.getpid()))
         prev_obs, prev_info_dict = self._get_obs()
-        print('Sim step: {}'.format(os.getpid()))
         self.sim.step()
-        print('Current obs: {}'.format(os.getpid()))
         cur_obs, cur_info_dict = self._get_obs()
 
-        print('Some info bullshit: {}'.format(os.getpid()))
         info = {}
         info['internal_state'], info['ori_obs'] = prev_info_dict['ori_obs'].copy(), prev_info_dict['ori_obs'].copy()
         if self.obs_type == 'pixels':
@@ -307,7 +301,6 @@ class MultipleFetchPickAndPlaceEnv(MujocoTrait, utils.EzPickle):
         info['achieved_goal'], info['desired_goal'] = cur_info_dict['achieved_goal'], cur_info_dict['desired_goal']
         reward = self.compute_reward(cur_info_dict["achieved_goal"], self.goal, info)
         done = (reward == 0)
-        print('End of step, returning tuples: {}'.format(os.getpid()))
         return cur_obs, reward, done, info
     
     def render(self, kwargs):

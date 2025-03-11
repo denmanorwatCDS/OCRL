@@ -3,7 +3,7 @@ globals:
   sample_cpu: true
   seed: 42
   n_thread: 1
-  n_parallel: 4
+  n_parallel: 8
   encoder: 'concat'
   mlp_arch: [1024, 1024]
 

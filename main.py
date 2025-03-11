@@ -15,7 +15,7 @@ from skill_discovery.METRA.metra import METRA
 from RL.algos.sac import SAC
 from networks.cnn import Encoder, ConcatEncoder, WithEncoder
 from networks.parameter import ParameterModule
-from gym.vector import AsyncVectorEnv
+from gym.vector import SyncVectorEnv
 from copy import deepcopy
 from eval_utils.eval_utils import get_option_colors, draw_2d_gaussians, record_video
 import matplotlib.pyplot as plt
@@ -344,7 +344,7 @@ def collect_trajectories(env, agent, trajectories_length, trajectories_qty = Non
     
     env_qty = len(env.env_fns)
     assert trajectories_qty % len(env.env_fns) == 0, 'Not integer division'
-    if isinstance(env, AsyncVectorEnv):
+    if isinstance(env, SyncVectorEnv):
         pseudoepisodes = trajectories_qty // len(env.env_fns)
     else:
         pseudoepisodes = trajectories_qty
@@ -395,10 +395,9 @@ def prepare_batch(batch, device = 'cuda'):
 
 def train_cycle(trainer_config, agent, skill_model, replay_buffer, make_env_fn, seed, 
                 comet_logger):
-    env = AsyncVectorEnv([lambda: make_env_fn(seed = (seed + i)) for i in range(trainer_config.n_parallel)],
-                          context = "forkserver")
-    eval_env = AsyncVectorEnv([lambda: make_env_fn(seed = (seed + i)) for i in range(trainer_config.n_parallel)],
-                               context = "forkserver")
+    env = SyncVectorEnv([lambda: make_env_fn(seed = (seed + i)) for i in range(trainer_config.n_parallel)])
+    eval_env = SyncVectorEnv([lambda: make_env_fn(seed = (seed + i)) for i in range(trainer_config.n_parallel)])
+    
     cur_step = 0
     for i in range(trainer_config.n_epochs):
         trajs = collect_trajectories(env = env, agent = agent, skill_model = skill_model, 
