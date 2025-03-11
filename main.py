@@ -396,9 +396,9 @@ def prepare_batch(batch, device = 'cuda'):
 def train_cycle(trainer_config, agent, skill_model, replay_buffer, make_env_fn, seed, 
                 comet_logger):
     env = AsyncVectorEnv([lambda: make_env_fn(seed = (seed + i)) for i in range(trainer_config.n_parallel)],
-                        context = "spawn")
+                        context = "fork")
     eval_env = AsyncVectorEnv([lambda: make_env_fn(seed = (seed + i)) for i in range(trainer_config.n_parallel)],
-                                context = "spawn")
+                                context = "fork")
     cur_step = 0
     for i in range(trainer_config.n_epochs):
         trajs = collect_trajectories(env = env, agent = agent, skill_model = skill_model, 
