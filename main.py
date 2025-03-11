@@ -294,6 +294,7 @@ def run():
                    option_policy = option_policy, device = config.globals.device,
                    optimizers = {key: optimizers[key] for key in ['option_policy', 'qf', 'log_alpha']},
                    discount = config.rl_algo.discount, env_spec = env)
+    env.close()
     
     train_cycle(config.trainer_args, agent = sac_algo, skill_model = metra, replay_buffer=replay_buffer,
                 make_env_fn = make_seeded_env, seed = config.globals.seed, comet_logger = exp)
@@ -543,7 +544,6 @@ def fetch_frames(trajectories, example_env, env_name):
                 elif env_name == 'gripper':
                     video[-1].append(unwrapped_example_env.render({'mode': mode, 'width': width, 'height': height}))
     return np.array(video)
-
 
 if __name__ == '__main__':
     matplotlib.use('Agg')
