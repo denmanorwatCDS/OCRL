@@ -1,5 +1,5 @@
 global:
-  seed: 43
+  seed: 42
 
 env:
   name: "gripper"
