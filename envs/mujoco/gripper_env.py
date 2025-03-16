@@ -23,7 +23,6 @@ except ImportError as e:
 class MultipleFetchPickAndPlaceEnv(MujocoTrait, utils.EzPickle):
     def __init__(self, seed = None, obs_type = 'state', reward_type = 'sparse', 
                  object_qty = 4, with_repeat = True, object_names = ['ball', 'box', 'desk', 'hammer']):
-        
         self.colors = ['1 0 0 1', '0 1 0 1', '0 0 1 1', '1 1 0 1', '0 1 1 1', '1 0 1 1']
         self.tints = ['0.25 0 0 1', '0 0.25 0 1', '0 0 0.25 1', '0.25 0.25 0 1', '0 0.25 0.25 1', '0.25 0 0.25 1']
         
@@ -32,6 +31,7 @@ class MultipleFetchPickAndPlaceEnv(MujocoTrait, utils.EzPickle):
             'robot0:slide1': 0.48,
             'robot0:slide2': 0.0
         }
+
         self.n_substeps = 20
         self.n_actions = 4
         self.gripper_extra_height = 0.2
@@ -40,7 +40,7 @@ class MultipleFetchPickAndPlaceEnv(MujocoTrait, utils.EzPickle):
         self.distance_threshold = 0.1
         for object_name in object_names:
             assert object_name in ['ball', 'box', 'desk', 'hammer'],\
-            'Supported items are: ball, box, desk, hammer.{} is not supported'.format(object_name)
+            'Supported items are: ball, box, desk, hammer. {} is not supported'.format(object_name)
         self.object_names = object_names
         
         self.object_qty = object_qty
@@ -196,7 +196,7 @@ class MultipleFetchPickAndPlaceEnv(MujocoTrait, utils.EzPickle):
     def _initialize_sim(self):
         created_object_names, xml_path, table_pos, table_size = self._create_multiobject_xml()
         model = mujoco_py.load_model_from_path(xml_path)
-        self.sim = mujoco_py.MjSim(model, nsubsteps=self.n_substeps)
+        self.sim = mujoco_py.MjSim(model, nsubsteps = self.n_substeps)
         self.viewer = None
         self._viewers = {}
 
@@ -282,9 +282,9 @@ class MultipleFetchPickAndPlaceEnv(MujocoTrait, utils.EzPickle):
         return obs
     
     def step(self, action):
+        prev_obs, prev_info_dict = self._get_obs()
         action = np.clip(action, self.action_space.low, self.action_space.high)
         self._set_action(action)
-        prev_obs, prev_info_dict = self._get_obs()
         self.sim.step()
         cur_obs, cur_info_dict = self._get_obs()
 
@@ -387,6 +387,56 @@ class MultipleFetchPickAndPlaceEnv(MujocoTrait, utils.EzPickle):
         """
         return self
 
+    def _remove_pressure(self, pos_ctrl):
+        # Adapted from: https://gist.github.com/machinaut/209c44e8c55245c0d0f0094693053158
+        
+        for i in range(self.sim.data.ncon):
+            contact = self.sim.data.contact[i]
+            geom_1, geom_2 = self.sim.model.geom_id2name(contact.geom1), self.sim.model.geom_id2name(contact.geom2)
+            target_geom_id = None
+            if geom_1 in ['robot0:gripper_link', 'robot0:r_gripper_finger_link', 'robot0:l_gripper_finger_link']:
+                target_geom_id = contact.geom1
+            if geom_2 in ['robot0:gripper_link', 'robot0:r_gripper_finger_link', 'robot0:l_gripper_finger_link']:
+                target_geom_id = contact.geom2
+            if target_geom_id is not None:
+                c_array = np.zeros(6, dtype=np.float64)
+                mujoco_py.functions.mj_contactForce(self.sim.model, self.sim.data, target_geom_id, c_array)
+
+                ref = np.reshape(contact.frame, (3, 3))
+                c_force = np.dot(np.linalg.inv(ref), c_array[0:3])[2]
+                if c_force < -1e-03:
+                    pos_ctrl = np.clip(pos_ctrl, a_min = [-np.inf, -np.inf, 0], a_max = [np.inf, np.inf, np.inf])
+                return pos_ctrl
+        
+        return pos_ctrl
+
+    def _set_action(self, action, obs):
+        assert action.shape == (4,)
+        action = action.copy()  # ensure that we don't change the action outside of this scope
+        pos_ctrl, gripper_ctrl = action[:3], action[3]
+        gripper_z_pos = obs[2]
+        
+        if gripper_z_pos < 0.416:
+            pos_ctrl = np.clip(pos_ctrl, a_min = [-np.inf, -np.inf, 0], 
+                               a_max = [np.inf, np.inf, np.inf])
+        if gripper_z_pos > 0.9:
+            pos_ctrl = np.clip(pos_ctrl, a_min = [-np.inf, -np.inf, -np.inf], 
+                               a_max = [np.inf, np.inf, 0])
+        
+        pos_ctrl = self._remove_pressure(pos_ctrl)
+
+        pos_ctrl *= 0.05  # limit maximum change in position
+        rot_ctrl = [1., 0., 1., 0.]  # fixed rotation of the end effector, expressed as a quaternion
+        gripper_ctrl = np.array([gripper_ctrl, gripper_ctrl])
+        assert gripper_ctrl.shape == (2,)
+        if self.block_gripper:
+            gripper_ctrl = np.zeros_like(gripper_ctrl)
+        action = np.concatenate([pos_ctrl, rot_ctrl, gripper_ctrl])
+
+        # Apply action to simulation.
+        gym_robotics_utils.ctrl_set_action(self.sim, action)
+        gym_robotics_utils.mocap_set_action(self.sim, action)
+
 # ============= Override of MujocoTrait methods =============
 
     def _get_coordinates_trajectories(self, trajectories):
@@ -404,23 +454,6 @@ class MultipleFetchPickAndPlaceEnv(MujocoTrait, utils.EzPickle):
         
 
 # ============= No change from fetch_env.PickAndPlaceEnv =============
-
-    def _set_action(self, action):
-        assert action.shape == (4,)
-        action = action.copy()  # ensure that we don't change the action outside of this scope
-        pos_ctrl, gripper_ctrl = action[:3], action[3]
-
-        pos_ctrl *= 0.05  # limit maximum change in position
-        rot_ctrl = [1., 0., 1., 0.]  # fixed rotation of the end effector, expressed as a quaternion
-        gripper_ctrl = np.array([gripper_ctrl, gripper_ctrl])
-        assert gripper_ctrl.shape == (2,)
-        if self.block_gripper:
-            gripper_ctrl = np.zeros_like(gripper_ctrl)
-        action = np.concatenate([pos_ctrl, rot_ctrl, gripper_ctrl])
-
-        # Apply action to simulation.
-        gym_robotics_utils.ctrl_set_action(self.sim, action)
-        gym_robotics_utils.mocap_set_action(self.sim, action)
 
     def _viewer_setup(self):
         body_id = self.sim.model.body_name2id('table0')
