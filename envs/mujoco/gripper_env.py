@@ -11,6 +11,7 @@ from envs.mujoco.mujoco_utils import MujocoTrait
 import datetime
 import sys
 import string
+import logging
 
 DEFAULT_SIZE = 500
 
@@ -47,7 +48,8 @@ class MultipleFetchPickAndPlaceEnv(MujocoTrait, utils.EzPickle):
         self.with_repeat = with_repeat
         self.seed(seed)
         print(sys.argv[0])
-        self.path_to_xmls_folder = sys.argv[0][:-7] + 'env_xmls/' + str(datetime.datetime.now()).replace(' ', '_')
+        date_and_time = str(datetime.datetime.now()).replace(' ', '_')
+        self.path_to_xmls_folder = sys.argv[0][:-7] + 'env_xmls/' + date_and_time
         os.mkdir(self.path_to_xmls_folder)
 
         self.created_object_names, self.goal = self._initialize_sim()
@@ -55,6 +57,11 @@ class MultipleFetchPickAndPlaceEnv(MujocoTrait, utils.EzPickle):
         self.initial_state = copy.deepcopy(self.sim.get_state())
 
         self.action_space = spaces.Box(-1., 1., shape=(self.n_actions,), dtype='float32')
+
+        path = sys.argv[0][:-7] + 'logs/' + date_and_time
+        self.logger = logging.getLogger(__name__)
+        logging.basicConfig(filename = path, encoding='utf-8', level=logging.DEBUG)
+        
         self.obs_type = obs_type
         obs, _ = self._get_obs()
         if obs_type == 'state':
@@ -69,6 +76,7 @@ class MultipleFetchPickAndPlaceEnv(MujocoTrait, utils.EzPickle):
             pixel_shape=(64, 64, 3),
         )
         self.reward_range = (-1, 0)
+
 
     def _create_multiobject_xml(self):
         prefix_to_folder = os.path.join(os.path.dirname(__file__), 'gripper', 'xmls')
@@ -220,6 +228,8 @@ class MultipleFetchPickAndPlaceEnv(MujocoTrait, utils.EzPickle):
         robot_qpos, robot_qvel = gym_robotics_utils.robot_get_obs(self.sim)
         objects_description = {'object_pos': [], 'object_rel_pos': [], 'object_rot': [], 
                               'object_velp': [], 'object_velr': []}
+        
+        self.logger.debug('Robot qpos: {}'.format(robot_qpos[-2:]))
         for name in self.created_object_names:
             objects_description['object_pos'].append(self.sim.data.get_site_xpos(name))
             # rotations
@@ -230,6 +240,8 @@ class MultipleFetchPickAndPlaceEnv(MujocoTrait, utils.EzPickle):
             # gripper state
             objects_description['object_rel_pos'].append(objects_description['object_pos'][-1] - grip_pos)
             objects_description['object_velp'][-1] -= grip_velp
+            self.logger.debug('Object {} qpos: {}, vel: {}'.format(name, objects_description['object_pos'][-1], 
+                                                                   objects_description['object_velp'][-1]))
         gripper_state = robot_qpos[-2:]
         gripper_vel = robot_qvel[-2:] * dt  # change to a scalar if the gripper is made symmetric
         
@@ -273,6 +285,7 @@ class MultipleFetchPickAndPlaceEnv(MujocoTrait, utils.EzPickle):
         return reward - 1
     
     def reset(self):
+        self.logger.debug('\n\nRESET\n\n')
         did_reset_sim = False
         while not did_reset_sim:
             did_reset_sim = self._reset_sim()
@@ -284,7 +297,7 @@ class MultipleFetchPickAndPlaceEnv(MujocoTrait, utils.EzPickle):
     def step(self, action):
         prev_obs, prev_info_dict = self._get_obs()
         action = np.clip(action, self.action_space.low, self.action_space.high)
-        self._set_action(action)
+        self._set_action(action, prev_obs)
         self.sim.step()
         cur_obs, cur_info_dict = self._get_obs()
 
