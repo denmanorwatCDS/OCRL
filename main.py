@@ -45,7 +45,6 @@ def fetch_config():
 
     return config
 
-
 def make_env(env_name, env_kwargs, encoder, max_path_length, seed, frame_stack, normalizer_type):
     if env_name == 'maze':
         from envs.maze_env import MazeEnv
@@ -458,6 +457,7 @@ def eval_metrics(env, example_env, agent, skill_model, num_random_trajectories,
         fig, ax = plt.subplots(nrows = 1, ncols = (example_env_kwargs.object_qty + 1))
     else:
         fig, ax = plt.subplots(nrows = 1, ncols = 1)
+        ax = np.array([ax])
     example_env.render_trajectories(random_trajectories, random_option_colors, None, ax)
     fig.canvas.draw()
     skill_img = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
