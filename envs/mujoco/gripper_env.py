@@ -429,14 +429,31 @@ class MultipleFetchPickAndPlaceEnv(MujocoTrait, utils.EzPickle):
         assert action.shape == (4,)
         action = action.copy()  # ensure that we don't change the action outside of this scope
         pos_ctrl, gripper_ctrl = action[:3], action[3]
-        gripper_z_pos = obs[2]
+        gripper_x_pos, gripper_y_pos, gripper_z_pos = obs[0], obs[1], obs[2]
         
-        if gripper_z_pos < 0.416:
-            pos_ctrl = np.clip(pos_ctrl, a_min = [-np.inf, -np.inf, 0], 
-                               a_max = [np.inf, np.inf, np.inf])
+        if gripper_x_pos > 1.6:
+            pos_ctrl = np.clip(pos_ctrl, a_min = [-np.inf, -np.inf, -np.inf], 
+                               a_max = [0, np.inf, np.inf])
+            
+        if gripper_y_pos > 1.15:
+            pos_ctrl = np.clip(pos_ctrl, a_min = [-np.inf, -np.inf, -np.inf], 
+                               a_max = [np.inf, 0, np.inf])
+            
         if gripper_z_pos > 0.9:
             pos_ctrl = np.clip(pos_ctrl, a_min = [-np.inf, -np.inf, -np.inf], 
                                a_max = [np.inf, np.inf, 0])
+            
+        if gripper_x_pos < 1.:
+            pos_ctrl = np.clip(pos_ctrl, a_min = [0, -np.inf, -np.inf], 
+                               a_max = [np.inf, np.inf, np.inf])
+            
+        if gripper_y_pos < 0.35:
+            pos_ctrl = np.clip(pos_ctrl, a_min = [-np.inf, 0, -np.inf], 
+                               a_max = [np.inf, np.inf, np.inf])
+            
+        if gripper_z_pos < 0.416:
+            pos_ctrl = np.clip(pos_ctrl, a_min = [-np.inf, -np.inf, 0], 
+                               a_max = [np.inf, np.inf, np.inf])
         
         pos_ctrl = self._remove_pressure(pos_ctrl)
 
