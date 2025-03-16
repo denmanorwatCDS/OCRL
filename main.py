@@ -514,9 +514,9 @@ def eval_metrics(env, example_env, agent, skill_model, num_random_trajectories,
     video_options = [{'option': opt} for opt in video_options]
     video_trajectories = collect_trajectories(env = env, agent = agent, trajectories_length = 200, 
                                               options = video_options, render = True)
-    video_trajectories = fetch_frames(video_trajectories, example_env = example_env, env_name = example_env_name)
-    path_to_video = record_video(video_trajectories, skip_frames = 2)
-    comet_logger.log_video(file = path_to_video, name = 'Skill videos', step = step)
+    # video_trajectories = fetch_frames(video_trajectories, example_env = example_env, env_name = example_env_name)
+    # path_to_video = record_video(video_trajectories, skip_frames = 2)
+    # comet_logger.log_video(file = path_to_video, name = 'Skill videos', step = step)
     
     comet_logger.log_metrics(example_env.calc_eval_metrics(random_trajectories, is_option_trajectories=True), step = step)
     example_env.close()
