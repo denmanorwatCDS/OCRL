@@ -146,8 +146,6 @@ class MultipleFetchPickAndPlaceEnv(MujocoTrait, utils.EzPickle):
         env_xml_path = os.path.join(self.path_to_xmls_folder, 'env{}.xml'.\
                                     format(self.seed()[0]))
         self.env_xml_path = env_xml_path
-        if os.path.exists(env_xml_path):
-            os.remove(env_xml_path)
 
         with open(env_xml_path, 'w') as f:
             xml_tree.write(f, encoding='unicode')
@@ -202,7 +200,7 @@ class MultipleFetchPickAndPlaceEnv(MujocoTrait, utils.EzPickle):
         for i, object_name in enumerate(created_object_names):
             initial_qpos['{}:joint'.format(object_name)] = [*object_positions[i], 1., 0., 0., 0.]
 
-        self._env_setup(initial_qpos=initial_qpos)
+        self._env_setup(initial_qpos = initial_qpos)
         return created_object_names, goal
         
     def _get_obs(self):
@@ -293,6 +291,11 @@ class MultipleFetchPickAndPlaceEnv(MujocoTrait, utils.EzPickle):
         reward = self.compute_reward(cur_info_dict["achieved_goal"], self.goal, info)
         done = (reward == 0)
         return cur_obs, reward, done, info
+    
+    def render_step(self, action, resolution = (140, 140)):
+        obs, reward, done, info = self.step(action)
+        pic = self.render({'width': resolution[0], 'height': resolution[1], 'mode': 'rgb_array'})
+        return obs, reward, done, info, pic
     
     def render(self, kwargs):
         from mujoco_py.generated import const as CONST

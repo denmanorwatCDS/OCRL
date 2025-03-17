@@ -203,7 +203,8 @@ class DMCGymWrapper(core.Env):
             lc = LineCollection(segments, linewidths=linewidths, color=color)
             ax.add_collection(lc)
         else:
-            ax.plot(trajectory[:, 0], trajectory[:, 1], color=color, linewidth=0.7)
+            for a in ax:
+                a.plot(trajectory[:, 0], trajectory[:, 1], color=color, linewidth=0.7)
 
     def plot_trajectories(self, trajectories, colors, plot_axis, ax):
         """Plot trajectories onto given ax."""
@@ -221,11 +222,12 @@ class DMCGymWrapper(core.Env):
         if plot_axis is None:
             plot_axis = [-square_axis_limit, square_axis_limit, -square_axis_limit, square_axis_limit]
 
-        if plot_axis is not None:
-            ax.axis(plot_axis)
-            ax.set_aspect('equal')
-        else:
-            ax.axis('scaled')
+        for a in ax:
+            if plot_axis is not None:
+                a.axis(plot_axis)
+                a.set_aspect('equal')
+            else:
+                a.axis('scaled')
 
     def render_trajectories(self, trajectories, colors, plot_axis, ax):
         coordinates_trajectories = self._get_coordinates_trajectories(trajectories)

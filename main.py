@@ -4,6 +4,9 @@ import numpy as np
 import omegaconf
 import pathlib
 import torch
+import math
+
+from envs.custom_dmc_tasks.dmc import DMCGymWrapper
 from envs.utils.consistent_normalized_env import consistent_normalize, get_normalizer_preset
 from networks.distribution_networks import GaussianMLPModule, GaussianMLPIndependentStdModule, GaussianMLPTwoHeadedModule
 from utils.distributions.tanh import TanhNormal
@@ -15,7 +18,7 @@ from skill_discovery.METRA.metra import METRA
 from RL.algos.sac import SAC
 from networks.cnn import Encoder, ConcatEncoder, WithEncoder
 from networks.parameter import ParameterModule
-from gym.vector import SyncVectorEnv
+from gym.vector import AsyncVectorEnv
 from copy import deepcopy
 from eval_utils.eval_utils import get_option_colors, draw_2d_gaussians, record_video
 import matplotlib.pyplot as plt
@@ -333,7 +336,7 @@ def update_traj_with_array(target_dict, array, array_key):
 
 
 def collect_trajectories(env, agent, trajectories_length, trajectories_qty = None, skill_model = None, 
-                         options = None, render = False):
+                         options = None):
     if options is None:
         options = skill_model._get_train_trajectories_kwargs(trajectories_qty)
     else:
@@ -342,9 +345,8 @@ def collect_trajectories(env, agent, trajectories_length, trajectories_qty = Non
         trajectories_qty = len(options)
     
     env_qty = len(env.env_fns)
-    assert trajectories_qty % len(env.env_fns) == 0, 'Not integer division'
-    if isinstance(env, SyncVectorEnv):
-        pseudoepisodes = trajectories_qty // len(env.env_fns)
+    if isinstance(env, AsyncVectorEnv):
+        pseudoepisodes = math.ceil(trajectories_qty / len(env.env_fns))
     else:
         pseudoepisodes = trajectories_qty
     
@@ -380,7 +382,40 @@ def collect_trajectories(env, agent, trajectories_length, trajectories_qty = Non
                                            'dones')
             prev_obs = next_obs
             prev_dones = np.logical_or(prev_dones, dones)
+    
+    generated_trajectories = generated_trajectories[:trajectories_qty]
     return generated_trajectories
+
+def render_trajectories(env, agent, options, trajectories_length):
+    videos = []
+    trajectories_qty = len(options)
+
+    if isinstance(env.unwrapped, DMCGymWrapper):
+        render_step = False
+    else:
+        render_step = True
+    
+    for pseudoepisode in range(trajectories_qty):
+        videos.append([])
+        cur_option = np.array([options[pseudoepisode]['option']])
+        prev_obs = np.expand_dims(env.reset(), 0)
+        prev_obs = np.transpose(prev_obs, [0, 3, 1, 2]) if len(prev_obs.shape) == 4 else prev_obs
+        prev_done = False
+
+        for i in range(trajectories_length):
+            obs_and_option = {'obs': prev_obs, 'option': cur_option}
+            action, action_info = agent.policy['option_policy'].get_actions(obs_and_option)
+            action = action[0]
+            if render_step:
+                next_obs, reward, done, env_info, img = env.render_step(action)
+            else:
+                next_obs, reward, done, env_info = env.step(action)
+                img = next_obs.copy() * 255/2 + 255/2
+            videos[-1].append(img)
+
+            next_obs = np.expand_dims(next_obs, axis = 0)
+            next_obs = np.transpose(next_obs, [0, 3, 1, 2]) if len(next_obs.shape) == 4 else next_obs
+    return np.array(videos)
 
 def prepare_batch(batch, device = 'cuda'):
     data = {}
@@ -394,8 +429,10 @@ def prepare_batch(batch, device = 'cuda'):
 
 def train_cycle(trainer_config, agent, skill_model, replay_buffer, make_env_fn, seed, 
                 comet_logger):
-    env = SyncVectorEnv([lambda: make_env_fn(seed = (seed + i)) for i in range(trainer_config.n_parallel)])
-    eval_env = SyncVectorEnv([lambda: make_env_fn(seed = (seed + i)) for i in range(trainer_config.n_parallel)])
+    env = AsyncVectorEnv([lambda: make_env_fn(seed = (seed + i)) for i in range(trainer_config.n_parallel)], 
+                         context='spawn')
+    eval_env = AsyncVectorEnv([lambda: make_env_fn(seed = (seed + i)) for i in range(trainer_config.n_parallel)], 
+                              context='spawn')
     
     cur_step = 0
     for i in range(trainer_config.n_epochs):
@@ -422,8 +459,7 @@ def train_cycle(trainer_config, agent, skill_model, replay_buffer, make_env_fn, 
                             device = "cuda:0", comet_logger = comet_logger, step = cur_step)
 
 
-def eval_metrics(env, example_env, agent, skill_model, num_random_trajectories, 
-                 sample_processor, example_env_name, example_env_kwargs, device, comet_logger, step):
+def sample_eval_options(num_random_trajectories, skill_model):
     if skill_model.discrete:
         eye_options = np.eye(skill_model.dim_option)
         random_options = []
@@ -448,17 +484,46 @@ def eval_metrics(env, example_env, agent, skill_model, num_random_trajectories,
             random_options = random_options / np.linalg.norm(random_options, axis=1, keepdims=True)
         random_option_colors = get_option_colors(random_options * 4)
     random_options = [{'option': opt} for opt in random_options]
+    return random_options, random_option_colors
+
+def sample_video_options(skill_model):
+    if skill_model.discrete:
+        video_options = np.eye(skill_model.dim_option)
+        video_options = video_options.repeat(2, axis=0) # Num video repeats???
+    else:
+        if skill_model.dim_option == 2:
+            radius = 1. if skill_model.unit_length else 1.5
+            video_options = []
+            for angle in [3, 2, 1, 4]:
+                video_options.append([radius * np.cos(angle * np.pi / 4), radius * np.sin(angle * np.pi / 4)])
+            video_options.append([0, 0])
+            for angle in [0, 5, 6, 7]:
+                video_options.append([radius * np.cos(angle * np.pi / 4), radius * np.sin(angle * np.pi / 4)])
+            video_options = np.array(video_options)
+        else:
+            video_options = np.random.randn(8, skill_model.dim_option)
+            if skill_model.unit_length:
+                video_options = video_options / np.linalg.norm(video_options, axis=1, keepdims=True)
+        video_options = video_options.repeat(2, axis=0)
+    return video_options
+
+
+def eval_metrics(env, example_env, agent, skill_model, num_random_trajectories, 
+                 sample_processor, example_env_name, example_env_kwargs, device, comet_logger, step):
+    
+    eval_options, eval_color = sample_eval_options(num_random_trajectories, skill_model)
     # Switch policy to evaluation mode
     agent.option_policy._force_use_mode_actions = True
-    print('Warning! In old version _action_noise_std was setting to None seemingly does not exist. Proceed with caution for new environments')
+    print('Warning! In old version _action_noise_std was setting to None seemingly does not exist.\
+           Proceed with caution for new environments')
     random_trajectories = collect_trajectories(env = env, agent = agent, trajectories_length = 200, 
-                                               options = random_options)
+                                               options = eval_options)
     if example_env_kwargs is not None:
         fig, ax = plt.subplots(nrows = 1, ncols = (example_env_kwargs.object_qty + 1))
     else:
         fig, ax = plt.subplots(nrows = 1, ncols = 1)
         ax = np.array([ax])
-    example_env.render_trajectories(random_trajectories, random_option_colors, None, ax)
+    example_env.render_trajectories(random_trajectories, eval_color, None, ax)
     fig.canvas.draw()
     skill_img = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
     skill_img = skill_img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
@@ -479,7 +544,7 @@ def eval_metrics(env, example_env, agent, skill_model, num_random_trajectories,
     option_stddevs = torch.ones_like(option_dists.stddev.detach().cpu()).numpy()
     option_samples = option_dists.mean.detach().cpu().numpy()
 
-    option_colors = random_option_colors
+    option_colors = eval_color
 
     fig, ax = plt.subplots()
     draw_2d_gaussians(option_means, option_stddevs, option_colors, ax)
@@ -490,59 +555,22 @@ def eval_metrics(env, example_env, agent, skill_model, num_random_trajectories,
     phi_img = phi_img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
     plt.close(fig), ax.clear()
     comet_logger.log_image(image_data = phi_img, name = "Phi plot", step = step)
-    agent.option_policy._force_use_mode_actions = False
 
     # Videos
-    if skill_model.discrete:
-        video_options = np.eye(skill_model.dim_option)
-        video_options = video_options.repeat(2, axis=0) # Num video repeats???
-    else:
-        if skill_model.dim_option == 2:
-            radius = 1. if skill_model.unit_length else 1.5
-            video_options = []
-            for angle in [3, 2, 1, 4]:
-                video_options.append([radius * np.cos(angle * np.pi / 4), radius * np.sin(angle * np.pi / 4)])
-            video_options.append([0, 0])
-            for angle in [0, 5, 6]:
-                video_options.append([radius * np.cos(angle * np.pi / 4), radius * np.sin(angle * np.pi / 4)])
-            video_options = np.array(video_options)
-        else:
-            video_options = np.random.randn(8, skill_model.dim_option)
-            if skill_model.unit_length:
-                video_options = video_options / np.linalg.norm(video_options, axis=1, keepdims=True)
-        video_options = video_options.repeat(2, axis=0)
+    video_options = sample_video_options(skill_model)
     video_options = [{'option': opt} for opt in video_options]
-    video_trajectories = collect_trajectories(env = env, agent = agent, trajectories_length = 200, 
-                                              options = video_options, render = True)
-    # video_trajectories = fetch_frames(video_trajectories, example_env = example_env, env_name = example_env_name)
-    # path_to_video = record_video(video_trajectories, skip_frames = 2)
-    # comet_logger.log_video(file = path_to_video, name = 'Skill videos', step = step)
+    video_trajectories = render_trajectories(env = example_env, agent = agent, trajectories_length = 200, 
+                                             options = video_options)
+    
+    agent.option_policy._force_use_mode_actions = False
+    path_to_video = record_video(video_trajectories, skip_frames = 2)
+    comet_logger.log_video(file = path_to_video, name = 'Skill videos', step = step)
     
     comet_logger.log_metrics(example_env.calc_eval_metrics(random_trajectories, is_option_trajectories=True), step = step)
     example_env.close()
 
-def fetch_frames(trajectories, example_env, env_name):
-    states = [trajectories[i]['observations'] for i in range(len(trajectories))]
-    actions = [trajectories[i]['actions'] for i in range(len(trajectories))]
-    if env_name in ['dmc_cheetah', 'dmc_quadruped', 'dmc_humanoid', 'pixel_gripper']:
-        return (np.transpose(np.array(states), [0, 1, 3, 4, 2]) * (255 / 2) + (255 / 2)).astype(np.uint8)
-
-    unwrapped_example_env = example_env.unwrapped
-
-    video = []
-    if env_name in ['ant', 'gripper']:
-        for i, traj in enumerate(states):
-            video.append([])
-            for j, step in enumerate(traj):
-                if j == 0:
-                    unwrapped_example_env.reset()
-                unwrapped_example_env.step(actions[i][j])
-                mode, width, height = 'rgb_array', 100, 100
-                if env_name == 'ant':
-                    video[-1].append(unwrapped_example_env.render(mode = mode, width = width, height = height))
-                elif env_name == 'gripper':
-                    video[-1].append(unwrapped_example_env.render({'mode': mode, 'width': width, 'height': height}))
-    return np.array(video)
+def convert_image_array_to_videos(trajectories):
+    return (np.array(trajectories) * (255 / 2) + (255 / 2)).astype(np.uint8)
 
 if __name__ == '__main__':
     matplotlib.use('Agg')

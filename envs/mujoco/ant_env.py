@@ -137,6 +137,11 @@ class AntEnv(MujocoTrait, mujoco_env.MujocoEnv, utils.EzPickle):
             info['render'] = self.render(mode='rgb_array').transpose(2, 0, 1)
 
         return ob, reward, done, info
+    
+    def render_step(self, action, resolution = (140, 140)):
+        obs, reward, done, info = self.step(action)
+        pic = self.render(width = resolution[0], height = resolution[1], mode = 'rgb_array')
+        return obs, reward, done, info, pic
 
     def _get_obs(self):
         if self._original_env:
