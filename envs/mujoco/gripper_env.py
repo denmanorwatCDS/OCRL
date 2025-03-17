@@ -52,8 +52,6 @@ class MultipleFetchPickAndPlaceEnv(MujocoTrait, utils.EzPickle):
         os.mkdir(self.path_to_xmls_folder)
 
         self.created_object_names, self.goal = self._initialize_sim()
-        
-        self.initial_state = copy.deepcopy(self.sim.get_state())
 
         self.action_space = spaces.Box(-1., 1., shape=(self.n_actions,), dtype='float32')
         
@@ -161,16 +159,16 @@ class MultipleFetchPickAndPlaceEnv(MujocoTrait, utils.EzPickle):
         safe_margin = 0.08
 
         # All objects must be on distance of 0.2 from each other (in order to not overlap)
-        safe_distance = 0.2
+        safe_distance = 0.15
 
         # Ascension above table, in order for all objects to be above it
-        safe_ascension = 0.03
+        safe_ascension = 0.04
 
         done = False
         while not done:
             done = True
             # Get uniform distribution in [-1., 1.]
-            points = (self.np_random.uniform(size=(4, 2)) - 0.5) * 2
+            points = (self.np_random.uniform(size=(5, 2)) - 0.5) * 2
             # Convert uniform distribution into distribution with table size, inside safe zone
             points[:, 0] = points[:, 0] * (table_size[0] - safe_margin) + table_pos[0]
             points[:, 1] = points[:, 1] * (table_size[1] - safe_margin) + table_pos[1]
@@ -184,18 +182,7 @@ class MultipleFetchPickAndPlaceEnv(MujocoTrait, utils.EzPickle):
         points = np.concatenate([points, np.ones([points.shape[0], 1]) * (table_pos[2] + table_size[2] + safe_ascension)],
                                 axis = -1)
         
-        # Sample goal position on necessary distance from each of objects
-        done = False
-        while not done:
-            done = True
-            goal = (self.np_random.uniform(size=(1, 2)) - 0.5) * 2
-            goal[:, 0] = goal[:, 0] * (table_size[0] - safe_margin) + table_pos[0]
-            goal[:, 1] = goal[:, 1] * (table_size[1] - safe_margin) + table_pos[1]
-
-            for i in range(points.shape[0]):
-                if np.linalg.norm(goal[0] - points[i][:2]) < self.distance_threshold + safe_margin:
-                    done = False
-            
+        goal = points[-1:, :2]
         goal = np.concatenate([goal, np.zeros((1, 1))], axis = -1)
         return points, goal
 
@@ -226,9 +213,6 @@ class MultipleFetchPickAndPlaceEnv(MujocoTrait, utils.EzPickle):
         robot_qpos, robot_qvel = gym_robotics_utils.robot_get_obs(self.sim)
         objects_description = {'object_pos': [], 'object_rot': [], 
                               'object_velp': [], 'object_velr': []}
-        
-        with open(self.log_path, mode='a') as f:
-            f.write('Robot pos: {}, velp: {}\n'.format(grip_pos, grip_velp))
 
         for name in self.created_object_names:
             objects_description['object_pos'].append(self.sim.data.get_site_xpos(name))
@@ -237,10 +221,6 @@ class MultipleFetchPickAndPlaceEnv(MujocoTrait, utils.EzPickle):
             # velocities
             objects_description['object_velp'].append(self.sim.data.get_site_xvelp(name) * dt)
             objects_description['object_velr'].append(self.sim.data.get_site_xvelr(name) * dt)
-
-            with open(self.log_path, mode='a') as f:
-                f.write('Object {} pos: {}, velp: {}\n'.format(name, objects_description['object_pos'][-1], 
-                                                                  objects_description['object_velp'][-1]))
 
         gripper_state = robot_qpos[-2:]
         gripper_vel = robot_qvel[-2:] * dt  # change to a scalar if the gripper is made symmetric
@@ -262,6 +242,7 @@ class MultipleFetchPickAndPlaceEnv(MujocoTrait, utils.EzPickle):
             'ori_obs': ori_obs.copy(),
             'achieved_goal': achieved_goal.copy(),
             'desired_goal': self.goal.copy(),
+            'grip_pos': obs[:3]
         }
 
         if self.obs_type == 'pixels':
@@ -286,11 +267,6 @@ class MultipleFetchPickAndPlaceEnv(MujocoTrait, utils.EzPickle):
         return reward - 1
     
     def reset(self):
-        with open(self.log_path, mode='a') as f:
-            f.write('\n\n RESET \n\n')
-        did_reset_sim = False
-        while not did_reset_sim:
-            did_reset_sim = self._reset_sim()
         os.remove(self.env_xml_path)
         self.created_object_names, self.goal = self._initialize_sim()
         obs = self._get_obs()[0]
@@ -299,7 +275,7 @@ class MultipleFetchPickAndPlaceEnv(MujocoTrait, utils.EzPickle):
     def step(self, action):
         prev_obs, prev_info_dict = self._get_obs()
         action = np.clip(action, self.action_space.low, self.action_space.high)
-        self._set_action(action, prev_obs)
+        self._set_action(action, prev_info_dict['grip_pos'])
         self.sim.step()
         cur_obs, cur_info_dict = self._get_obs()
 
@@ -429,31 +405,6 @@ class MultipleFetchPickAndPlaceEnv(MujocoTrait, utils.EzPickle):
         assert action.shape == (4,)
         action = action.copy()  # ensure that we don't change the action outside of this scope
         pos_ctrl, gripper_ctrl = action[:3], action[3]
-        gripper_x_pos, gripper_y_pos, gripper_z_pos = obs[0], obs[1], obs[2]
-        
-        if gripper_x_pos > 1.6:
-            pos_ctrl = np.clip(pos_ctrl, a_min = [-np.inf, -np.inf, -np.inf], 
-                               a_max = [0, np.inf, np.inf])
-            
-        if gripper_y_pos > 1.15:
-            pos_ctrl = np.clip(pos_ctrl, a_min = [-np.inf, -np.inf, -np.inf], 
-                               a_max = [np.inf, 0, np.inf])
-            
-        if gripper_z_pos > 0.9:
-            pos_ctrl = np.clip(pos_ctrl, a_min = [-np.inf, -np.inf, -np.inf], 
-                               a_max = [np.inf, np.inf, 0])
-            
-        if gripper_x_pos < 1.:
-            pos_ctrl = np.clip(pos_ctrl, a_min = [0, -np.inf, -np.inf], 
-                               a_max = [np.inf, np.inf, np.inf])
-            
-        if gripper_y_pos < 0.35:
-            pos_ctrl = np.clip(pos_ctrl, a_min = [-np.inf, 0, -np.inf], 
-                               a_max = [np.inf, np.inf, np.inf])
-            
-        if gripper_z_pos < 0.416:
-            pos_ctrl = np.clip(pos_ctrl, a_min = [-np.inf, -np.inf, 0], 
-                               a_max = [np.inf, np.inf, np.inf])
         
         pos_ctrl = self._remove_pressure(pos_ctrl)
 
@@ -514,16 +465,6 @@ class MultipleFetchPickAndPlaceEnv(MujocoTrait, utils.EzPickle):
     def seed(self, seed=None):
         self.np_random, seed = seeding.np_random(seed)
         return [seed]
-    
-    def _reset_sim(self):
-        """Resets a simulation and indicates whether or not it was successful.
-        If a reset was unsuccessful (e.g. if a randomized state caused an error in the
-        simulation), this method should indicate such a failure by returning False.
-        In such a case, this method will be called again to attempt a the reset again.
-        """
-        self.sim.set_state(self.initial_state)
-        self.sim.forward()
-        return True
     
     def _get_viewer(self, mode):
         self.viewer = self._viewers.get(mode)
