@@ -13,6 +13,7 @@ class METRA():
             self,
             *,
             traj_encoder,
+            dist_predictor,
             dual_lam,
             optimizers,
             dim_option,
@@ -26,11 +27,17 @@ class METRA():
     ):
         self.device = device
         self.traj_encoder = traj_encoder.to(self.device)
+
         self.dual_lam = dual_lam.to(self.device)
         self.param_modules = {
             'traj_encoder': self.traj_encoder,
             'dual_lam': self.dual_lam,
         }
+
+        if dist_predictor is not None:
+            self.dist_predictor = dist_predictor
+            self.dist_predictor.to(self.device)
+            self.param_modules['dist_predictor'] = self.dist_predictor
 
         self.dim_option = dim_option
 
@@ -46,17 +53,19 @@ class METRA():
     def _get_concat_obs(self, obs, option):
         return get_torch_concat_obs(obs, option)
     
-    def _generate_option_extras(self, options):
-        return [{'option': option} for option in options]
+    def _generate_option_extras(self, options, objects):
+        return [{'options': opt, 'obj_idxs': obj} for opt, obj in zip(options, objects)]
 
-    def _get_train_trajectories_kwargs(self, batch_size):
+    def _get_train_trajectories_kwargs(self, batch_size, n_objects):
         if self.discrete:
-            extras = self._generate_option_extras(np.eye(self.dim_option)[np.random.randint(0, self.dim_option, batch_size)])
+            extras = self._generate_option_extras(np.eye(self.dim_option)[np.random.randint(0, self.dim_option, batch_size)],
+                                                  np.random.randint(low = 0, high = n_objects, size = batch_size))
         else:
-            random_options = np.random.randn(batch_size, self.dim_option)
+            random_options = np.random.randn(batch_size, self.dim_option).astype(np.float32)
             if self.unit_length:
                 random_options /= np.linalg.norm(random_options, axis=-1, keepdims=True)
-            extras = self._generate_option_extras(random_options)
+            extras = self._generate_option_extras(random_options,
+                                                  np.random.randint(low = 0, high = n_objects, size = batch_size))
 
         return extras
 
@@ -91,8 +100,8 @@ class METRA():
 
     def _update_rewards(self, batch):
         logs = {}
-        obs = batch['obs']
-        next_obs = batch['next_obs']
+        obs = {'obs': batch['obs'], 'obj_idxs': batch['obj_idxs']}
+        next_obs = {'obs': batch['next_obs'], 'obj_idxs': batch['obj_idxs']}
 
         cur_z = self.traj_encoder(obs).mean
         next_z = self.traj_encoder(next_obs).mean
@@ -124,8 +133,8 @@ class METRA():
         logs.update(self._update_rewards(batch))
         rewards = batch['rewards']
 
-        obs = batch['obs']
-        next_obs = batch['next_obs']
+        obs = {'obs': batch['obs']}
+        next_obs = {'obs': batch['next_obs']}
 
         if self.dual_dist == 's2_from_s':
             s2_dist = self.dist_predictor(obs)
@@ -154,9 +163,10 @@ class METRA():
                 normalized_scaling_factor = (scaling_factor / geo_mean) ** 2
                 cst_dist = torch.mean(torch.square((y - x) - s2_dist_mean) * normalized_scaling_factor, dim=1)
 
+                # TODO it is 2-dimensional tensor. Is usage of mean across all dimensions is justified?
                 logs.update({
-                    'ScalingFactor': scaling_factor.mean(dim=0),
-                    'NormalizedScalingFactor': normalized_scaling_factor.mean(dim=0),
+                    'ScalingFactor': scaling_factor.mean(),
+                    'NormalizedScalingFactor': normalized_scaling_factor.mean(),
                 })
             else:
                 raise NotImplementedError

@@ -1,0 +1,31 @@
+rl_algo:
+  transformer_cfg:
+    name: transformer
+    nhead: 4
+    dim_feedforward: 1024
+    num_layers: 2
+
+  policy:
+    slot_extractor: 
+      name: dummy
+    slot_pooler:
+      name: ${rl_algo.transformer_cfg.name}
+      nhead: ${rl_algo.transformer_cfg.nhead}
+      dim_feedforward: ${rl_algo.transformer_cfg.dim_feedforward}
+      num_layers: ${rl_algo.transformer_cfg.num_layers}
+
+  critics:
+    slot_extractor:
+      name: dummy
+    slot_pooler:
+      name: ${rl_algo.transformer_cfg.name}
+      nhead: ${rl_algo.transformer_cfg.nhead}
+      dim_feedforward: ${rl_algo.transformer_cfg.dim_feedforward}
+      num_layers: ${rl_algo.transformer_cfg.num_layers}
+
+skill:
+  trajectory_encoder:
+    slot_extractor:
+      name: dummy
+    slot_pooler:
+      name: fetcher

@@ -1,12 +1,12 @@
-global:
-  seed: 42
+globals:
+  seed: 44
 
 env:
   name: "gripper"
   normalizer_type: "off"
   env_kwargs: 
-    object_qty: 1
-    object_names: ['box']
+    object_qty: 4
+    object_names: ['ball', 'box', 'desk', 'hammer']
 
 trainer_args:
   traj_batch_size: 8

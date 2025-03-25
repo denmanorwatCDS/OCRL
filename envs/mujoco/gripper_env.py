@@ -14,6 +14,8 @@ import string
 import logging
 
 DEFAULT_SIZE = 500
+OBJECT_OHE = {'grip': np.array([1, 0, 0, 0, 0]), 'ball': np.array([0, 1, 0, 0, 0]), 'box': np.array([0, 0, 1, 0, 0]), 
+              'desk': np.array([0, 0, 0, 1, 0]), 'hammer': np.array([0, 0, 0, 0, 1])}
 
 try:
     import mujoco_py
@@ -22,7 +24,7 @@ except ImportError as e:
                                        instructions here: https://github.com/openai/mujoco-py/.)""".format(e))
 
 class MultipleFetchPickAndPlaceEnv(MujocoTrait, utils.EzPickle):
-    def __init__(self, seed = None, obs_type = 'state', reward_type = 'sparse', 
+    def __init__(self, seed = None, obs_type = 'state', reward_type = 'sparse', unsupervised = True,
                  object_qty = 4, with_repeat = True, object_names = ['ball', 'box', 'desk', 'hammer']):
         self.colors = ['1 0 0 1', '0 1 0 1', '0 0 1 1', '1 1 0 1', '0 1 1 1', '1 0 1 1']
         self.tints = ['0.25 0 0 1', '0 0.25 0 1', '0 0 0.25 1', '0.25 0.25 0 1', '0 0.25 0.25 1', '0.25 0 0.25 1']
@@ -32,7 +34,7 @@ class MultipleFetchPickAndPlaceEnv(MujocoTrait, utils.EzPickle):
             'robot0:slide1': 0.48,
             'robot0:slide2': 0.0
         }
-
+        self.unsupervised = unsupervised
         self.n_substeps = 20
         self.n_actions = 4
         self.gripper_extra_height = 0.2
@@ -46,6 +48,7 @@ class MultipleFetchPickAndPlaceEnv(MujocoTrait, utils.EzPickle):
         
         self.object_qty = object_qty
         self.with_repeat = with_repeat
+        self._seed = seed
         self.seed(seed)
         date_and_time = str(datetime.datetime.now()).replace(' ', '_')
         self.path_to_xmls_folder = sys.argv[0][:-7] + 'env_xmls/' + date_and_time
@@ -60,7 +63,7 @@ class MultipleFetchPickAndPlaceEnv(MujocoTrait, utils.EzPickle):
         
         self.obs_type = obs_type
         obs, _ = self._get_obs()
-        if obs_type == 'state':
+        if obs_type in ['state', 'decoupled_state']:
             self.observation_space = spaces.Box(-np.inf, np.inf, shape = obs.shape, dtype = 'float32')
         elif obs_type == 'pixels':
             self.observation_space = spaces.Box(0, 255, shape = obs.shape, dtype = 'uint8')
@@ -144,7 +147,7 @@ class MultipleFetchPickAndPlaceEnv(MujocoTrait, utils.EzPickle):
                         childs_child.attrib['size'] = str(self.distance_threshold) + ' ' + height
 
         env_xml_path = os.path.join(self.path_to_xmls_folder, 'env{}.xml'.\
-                                    format(self.seed()[0]))
+                                    format(self._seed))
         self.env_xml_path = env_xml_path
 
         with open(env_xml_path, 'w') as f:
@@ -166,7 +169,7 @@ class MultipleFetchPickAndPlaceEnv(MujocoTrait, utils.EzPickle):
         while not done:
             done = True
             # Get uniform distribution in [-1., 1.]
-            points = (self.np_random.uniform(size=(5, 2)) - 0.5) * 2
+            points = (self.np_random.uniform(size = (5, 2)) - 0.5) * 2
             # Convert uniform distribution into distribution with table size, inside safe zone
             points[:, 0] = points[:, 0] * (table_size[0] - safe_margin) + table_pos[0]
             points[:, 1] = points[:, 1] * (table_size[1] - safe_margin) + table_pos[1]
@@ -205,49 +208,73 @@ class MultipleFetchPickAndPlaceEnv(MujocoTrait, utils.EzPickle):
         
     def _get_obs(self):
         # positions
-        grip_pos = self.sim.data.get_site_xpos('robot0:grip')
+        grip_desc = get_gripper_description(sim = self.sim)
         dt = self.sim.nsubsteps * self.sim.model.opt.timestep
-        grip_velp = self.sim.data.get_site_xvelp('robot0:grip') * dt
+
+        # Description of gripper head (on which spatulas are connected)
+        grip_pos, grip_rot, grip_velp, grip_velr = grip_desc['pos'], grip_desc['rot'], grip_desc['velp'], grip_desc['velr']
+        grip_velp, grip_velr = grip_velp * dt, grip_velr * dt
+
+        # Description of gripper grippers (spatulas, rectangular thing with which gripper grasps object)
         robot_qpos, robot_qvel = gym_robotics_utils.robot_get_obs(self.sim)
-        objects_description = {'object_pos': [], 'object_rot': [], 
-                              'object_velp': [], 'object_velr': []}
+        gripper_state = robot_qpos[-2:]
+        gripper_vel = robot_qvel[-2:] * dt  # change to a scalar if the gripper is made symmetric
+
+        objects_description = {'object_pos': [grip_pos], 'object_rot': [grip_rot], 
+                               'object_velp': [grip_velp], 'object_velr': [grip_velr], 
+                               'object_meta': [np.concatenate([gripper_state, gripper_vel], axis = 0)],
+                               'object_ohe': [OBJECT_OHE['grip']]}
+        
+        if self.obs_type == 'state':
+            objects_description['object_rel_pos'] = [np.zeros(objects_description['object_pos'][0].shape)]
 
         for name in self.created_object_names:
             objects_description['object_pos'].append(self.sim.data.get_site_xpos(name))
             # rotations
             objects_description['object_rot'].append(rotations.mat2euler(self.sim.data.get_site_xmat(name)))
+            
             # velocities
             objects_description['object_velp'].append(self.sim.data.get_site_xvelp(name) * dt)
             objects_description['object_velr'].append(self.sim.data.get_site_xvelr(name) * dt)
+            
+            # relative characteristics
+            if self.obs_type == 'state':
+                objects_description['object_rel_pos'][-1] = objects_description['object_pos'] - grip_pos
+                objects_description['object_velp'][-1] -= grip_velp
 
-        gripper_state = robot_qpos[-2:]
-        gripper_vel = robot_qvel[-2:] * dt  # change to a scalar if the gripper is made symmetric
+            objects_description['object_meta'].append(np.zeros(objects_description['object_meta'][0].shape))
+            
+            # Remove number from name, thus excluding last char of name
+            objects_description['object_ohe'].append(OBJECT_OHE[name[:-1]])
         
-        achieved_goal = np.stack(objects_description['object_pos'].copy(), axis = 0)
+        achieved_goal = np.stack(objects_description['object_pos'][1:].copy(), axis = 0)
         assert len(achieved_goal.shape) == 2, 'Something wrong with achieved goal: expected 2 dimensions'
-
+        
+        ori_placeholder = {}
         for key in objects_description.keys():
-            objects_description[key] = np.concatenate(objects_description[key], axis = 0)
+            ori_placeholder[key] = np.concatenate(objects_description[key], axis = 0)
         
         ori_obs = np.concatenate([
-            grip_pos, objects_description['object_pos'], gripper_state, 
-            objects_description['object_rot'], objects_description['object_velp'], 
-            objects_description['object_velr'], grip_velp, gripper_vel,
-        ])
-        obs = np.concatenate([grip_pos, objects_description['object_pos'], grip_velp, objects_description['object_velp']])
+            ori_placeholder['object_pos'], ori_placeholder['object_rot'], 
+            ori_placeholder['object_velp'], ori_placeholder['object_velr'], 
+            ori_placeholder['object_meta']])
+        
+        if self.obs_type == 'state':
+            obs = np.concatenate([ori_placeholder['object_pos'], ori_placeholder['object_velp'], objects_description['object_meta'][0]])
+        elif self.obs_type == 'decoupled_state':
+            obs = np.concatenate([objects_description[key] for key in objects_description.keys()], axis = -1)
+        elif self.obs_type == 'pixels':
+            obs = self.render({'width': 64, 'height': 64, 'mode': 'rgb_array', 'segmentation': False})
+        else:
+            assert False, 'Only state, decoupled_state and pixels modes are supported'
 
         info_dict = {
             'ori_obs': ori_obs.copy(),
             'achieved_goal': achieved_goal.copy(),
             'desired_goal': self.goal.copy(),
-            'grip_pos': obs[:3]
+            'grip_pos': objects_description['object_pos'][0]
         }
-
-        if self.obs_type == 'pixels':
-            info_dict['render'] = self.render({'width': 64, 'height': 64, 
-                                               'mode': 'rgb_array', 'segmentation': False})
-
-        return obs if self.obs_type == 'state' else info_dict['render'], info_dict
+        return obs, info_dict
     
     def _is_success(self, achieved_goal, desired_goal):
         desired_goal = desired_goal.copy()[0, :2]
@@ -288,8 +315,11 @@ class MultipleFetchPickAndPlaceEnv(MujocoTrait, utils.EzPickle):
             info['coordinates'][obj * 3: (obj + 1) * 3] = prev_info_dict['ori_obs'][obj * 3: (obj + 1) * 3]
             info['next_coordinates'][obj * 3: (obj + 1) * 3] = cur_info_dict['ori_obs'][obj * 3: (obj + 1) * 3]
         info['achieved_goal'], info['desired_goal'] = cur_info_dict['achieved_goal'], cur_info_dict['desired_goal']
-        reward = self.compute_reward(cur_info_dict["achieved_goal"], self.goal, info)
-        done = (reward == 0)
+        
+        reward, done = 0, False
+        if not self.unsupervised:
+            reward = self.compute_reward(cur_info_dict["achieved_goal"], self.goal, info)
+            done = (reward == 0)
         return cur_obs, reward, done, info
     
     def render_step(self, action, resolution = (140, 140)):
@@ -380,6 +410,24 @@ class MultipleFetchPickAndPlaceEnv(MujocoTrait, utils.EzPickle):
             gym.Env: The base non-wrapped gym.Env instance
         """
         return self
+    
+    @property
+    def is_image(self):
+        return (self.obs_type == 'pixels')
+    
+    @property
+    def n_types(self):
+        # Include gripper type as well
+        return len(self.object_names) + 1
+    
+    @property
+    def n_obj(self):
+        # Include gripper as well
+        return self.object_qty + 1
+    
+    @property
+    def decoupled(self):
+        return 'decoupled' in self.obs_type
 
     def _remove_pressure(self, pos_ctrl):
         # Adapted from: https://gist.github.com/machinaut/209c44e8c55245c0d0f0094693053158
@@ -460,7 +508,6 @@ class MultipleFetchPickAndPlaceEnv(MujocoTrait, utils.EzPickle):
 
     def close(self):
         if self.viewer is not None:
-            # self.viewer.finish()
             self.viewer = None
             self._viewers = {}
         os.remove(self.env_xml_path)
@@ -480,3 +527,8 @@ class MultipleFetchPickAndPlaceEnv(MujocoTrait, utils.EzPickle):
             self._viewers[mode] = self.viewer
         return self.viewer
     
+def get_gripper_description(sim):
+    return {'pos': sim.data.get_site_xpos('robot0:grip'),
+            'rot': rotations.mat2euler(sim.data.get_site_xmat('robot0:grip')),
+            'velp': sim.data.get_site_xvelp('robot0:grip'),
+            'velr': sim.data.get_site_xvelr('robot0:grip')}

@@ -143,7 +143,6 @@ class PathBuffer:
     def preprocess_data(self, paths):
         data = collections.defaultdict(list)
         for path in paths:
-
             if 'obs' in self._pixel_keys:
                 assert np.bitwise_and(np.all(path['observations'] > -1.01), np.all(path['observations'] < 1.01)),\
                     'Expected normalized images'
@@ -166,10 +165,14 @@ class PathBuffer:
                 data['pre_tanh_values'].append(path['agent_infos']['pre_tanh_value'])
             if 'log_prob' in path['agent_infos']:
                 data['log_probs'].append(path['agent_infos']['log_prob'])
-            if 'option' in path['agent_infos']:
-                data['options'].append(path['agent_infos']['option'])
-                data['next_options'].append(np.concatenate([path['agent_infos']['option'][1:], path['agent_infos']['option'][-1:]], axis=0))
-        
+            if 'options' in path['agent_infos']:
+                data['options'].append(path['agent_infos']['options'])
+                data['next_options'].append(np.concatenate([path['agent_infos']['options'][1:], 
+                                                            path['agent_infos']['options'][-1:]], axis=0))
+            if 'obj_idxs' in path['agent_infos']:
+                data['obj_idxs'].append(path['agent_infos']['obj_idxs'])
+                data['next_obj_idxs'].append(np.concatenate([path['agent_infos']['obj_idxs'][1:], 
+                                                             path['agent_infos']['obj_idxs'][-1:]], axis=0))
         return data
 
     def update_replay_buffer(self, data):
@@ -177,10 +180,7 @@ class PathBuffer:
         for i in range(len(data['actions'])):
             path = {}
             for key in data.keys():
-                cur_list = data[key][i]
-                if cur_list.ndim == 1:
-                    cur_list = cur_list[..., np.newaxis]
-                path[key] = cur_list
+                path[key] = data[key][i]
             self.add_path(path)
 
     @staticmethod

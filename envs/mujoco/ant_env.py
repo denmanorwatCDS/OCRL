@@ -214,6 +214,19 @@ class AntEnv(MujocoTrait, mujoco_env.MujocoEnv, utils.EzPickle):
         pass
 
     @property
+    def is_image(self):
+        return False
+    
+    @property
+    def n_obj(self):
+        # Only ant is an object
+        return 1
+    
+    @property
+    def decoupled(self):
+        return False
+    
+    @property
     def body_com_indices(self):
         return self._body_com_indices
 

@@ -123,6 +123,19 @@ class DMCGymWrapper(core.Env):
     @property
     def reward_range(self):
         return 0, self._frame_skip
+    
+    @property
+    def is_image(self):
+        return True
+    
+    @property
+    def n_obj(self):
+        # Only ant is an object
+        return 1
+    
+    @property
+    def decoupled(self):
+        return False
 
     def seed(self, seed):
         self._true_action_space.seed(seed)

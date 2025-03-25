@@ -2,6 +2,21 @@ import torch
 import numpy as np
 from utils.distributions.tanh import TanhNormal
 
+NUMPY_DTYPE_TO_TORCH = {
+        np.bool_       : torch.bool,
+        np.uint8      : torch.uint8,
+        np.int8       : torch.int8,
+        np.int16      : torch.int16,
+        np.int32      : torch.int32,
+        np.int64      : torch.int64,
+        np.float16    : torch.float16,
+        np.float32    : torch.float32,
+        np.float64    : torch.float64,
+        np.complex64  : torch.complex64,
+        np.complex128 : torch.complex128
+    }
+
+
 class Policy(torch.nn.Module):
     def __init__(self,
                  name,
@@ -53,7 +68,7 @@ class Policy(torch.nn.Module):
         with torch.no_grad():
             for key in observations.keys():
                 if not isinstance(observations[key], torch.Tensor):
-                    observations[key] = torch.as_tensor(observations[key]).float().to(next(self.parameters()).device)
+                    observations[key] = torch.as_tensor(observations[key]).to(next(self.parameters()).device)
             samples, info = self.forward_mode(observations)
             return samples.cpu().numpy(), {
                 k: v.detach().cpu().numpy()
@@ -64,7 +79,7 @@ class Policy(torch.nn.Module):
         with torch.no_grad():
             for key in observations.keys():
                 if not isinstance(observations[key], torch.Tensor):
-                    observations[key] = torch.as_tensor(observations[key]).float().to(next(self.parameters()).device)
+                    observations[key] = torch.as_tensor(observations[key]).to(next(self.parameters()).device)
             dist, info = self.forward(observations)
             if isinstance(dist, TanhNormal):
                 pre_tanh_values, actions = dist.rsample_with_pre_tanh_value()
@@ -105,7 +120,7 @@ class Policy(torch.nn.Module):
     def get_action(self, observation):
         with torch.no_grad():
             if not isinstance(observation, torch.Tensor):
-                observation = torch.as_tensor(observation).float().to(next(self.parameters()).device)
+                observation = torch.as_tensor(observation).to(next(self.parameters()).device)
             observation = observation.unsqueeze(0)
             action, agent_infos = self.get_actions(observation)
             return action[0], {k: v[0] for k, v in agent_infos.items()}

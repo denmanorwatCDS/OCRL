@@ -4,7 +4,6 @@ globals:
   seed: 42
   n_thread: 1
   n_parallel: 8
-  encoder: 'concat'
   mlp_arch: [1024, 1024]
 
 env:
@@ -22,11 +21,15 @@ skill:
   device: ${globals.device}
   dual_reg: true
   dual_slack: 1e-3
-  dual_dist: 'one'
+  dual_dist_name: 'one'
+  dual_dist: null
   dual_lam: 30
   dual_lr: 1e-4
-  encoder: ${globals.encoder}
   trajectory_encoder:
+    slot_extractor:
+      name: null
+    slot_pooler:
+      name: null
     dim_option: ${skill.dim_option}
     hidden_sizes: ${globals.mlp_arch}
     lr: 1e-4
@@ -45,8 +48,11 @@ rl_algo:
   target_coef: 1.
   discount: 0.99
   device: ${globals.device}
-  encoder: ${globals.encoder}
   policy:
+    slot_extractor:
+      name: null
+    slot_pooler:
+      name: null
     name: 'option_policy'
     lr: 1e-4
     dim_option: ${skill.dim_option}
@@ -58,10 +64,15 @@ rl_algo:
       max_logstd: 2.
       type: TanhNormal
   critics:
+    slot_extractor:
+      name: null
+    slot_pooler:
+      name: null
     lr: 1e-4
     dim_option: ${skill.dim_option}
     hidden_sizes: ${globals.mlp_arch}
     nonlinearity: relu
+    layer_normalization: false
   alpha:
     value: 1e-2
     lr: 1e-4

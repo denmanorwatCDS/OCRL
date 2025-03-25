@@ -1,0 +1,34 @@
+globals:
+  seed: 42
+
+env:
+  name: "decoupled_gripper"
+  normalizer_type: "off"
+  env_kwargs: 
+    object_qty: 1
+    object_names: ['box']
+
+trainer_args:
+  traj_batch_size: 8
+  trans_optimization_epochs: 50
+
+replay_buffer:
+  max_transitions: 1000000
+
+skill:
+  name: "metra"
+  discrete: false
+  dim_option: 2
+  dual_dist_name: 's2_from_s'
+  dual_lam: 3000
+  dual_slack: 1e-06
+  dual_dist:
+    hidden_sizes: ${globals.mlp_arch}
+    nonlinearity: relu
+    init_std: 1
+    min_std: 1e-6
+    max_std: 1e6
+    std_parameterization: 'exp'
+    bias: True
+    spectral_normalization: false
+    lr: 1e-4

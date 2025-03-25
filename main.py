@@ -1,4 +1,4 @@
-import argparse, datetime, functools, sys, os, tempfile
+import argparse, datetime, functools, sys
 import comet_ml
 import numpy as np
 import omegaconf
@@ -6,19 +6,20 @@ import pathlib
 import torch
 import math
 
-from envs.custom_dmc_tasks.dmc import DMCGymWrapper
 from envs.utils.consistent_normalized_env import consistent_normalize, get_normalizer_preset
-from networks.distribution_networks import GaussianMLPModule, GaussianMLPIndependentStdModule, GaussianMLPTwoHeadedModule
+from envs.mujoco.obs_wrapper import ExpanderWrapper
+from networks import pipeline
+from networks.distribution_networks import GaussianMLPIndependentStdModule, GaussianMLPTwoHeadedModule
+from networks.feature_extractors import slot_extractors, slot_poolers
 from utils.distributions.tanh import TanhNormal
 from utils.weight_initializer.xavier_init import xavier_normal
 from RL.policies.policy import Policy
 from ReplayBuffers.path_replay_buffer import PathBuffer
-from networks.mlp import ContinuousMLPQFunction
+from networks.mlp import MLPModule
 from skill_discovery.METRA.metra import METRA
 from RL.algos.sac import SAC
-from networks.cnn import Encoder, ConcatEncoder, WithEncoder
 from networks.parameter import ParameterModule
-from gym.vector import AsyncVectorEnv
+from gym.vector import AsyncVectorEnv, SyncVectorEnv
 from copy import deepcopy
 from eval_utils.eval_utils import get_option_colors, draw_2d_gaussians, record_video
 import matplotlib.pyplot as plt
@@ -37,6 +38,7 @@ def set_seed(seed):
 def fetch_config():
     parser = argparse.ArgumentParser(prog='Metra')
     parser.add_argument('--config')
+    parser.add_argument('--pipeline_config')
     args = parser.parse_args()
     config_folder = str(pathlib.Path(__file__).parent.resolve()) + '/configs'
     config = config_folder + '/' + 'default.yaml'
@@ -45,10 +47,13 @@ def fetch_config():
         subconfig = config_folder + '/' + args.config
         subconfig = omegaconf.OmegaConf.load(subconfig)
         config.merge_with(subconfig)
+    env_config = config_folder + '/pipelines/' + args.pipeline_config
+    env_config = omegaconf.OmegaConf.load(env_config)
+    config.merge_with(env_config)
 
     return config
 
-def make_env(env_name, env_kwargs, encoder, max_path_length, seed, frame_stack, normalizer_type):
+def make_env(env_name, env_kwargs, max_path_length, seed, frame_stack, normalizer_type):
     if env_name == 'maze':
         from envs.maze_env import MazeEnv
         env = MazeEnv(
@@ -57,24 +62,29 @@ def make_env(env_name, env_kwargs, encoder, max_path_length, seed, frame_stack, 
         )
     elif env_name == 'half_cheetah':
         from envs.mujoco.half_cheetah_env import HalfCheetahEnv
-        env = HalfCheetahEnv(render_hw=100)
+        env = HalfCheetahEnv(render_hw = 100)
         env.seed(seed = seed)
     elif env_name == 'ant':
         from envs.mujoco.ant_env import AntEnv
-        env = AntEnv(render_hw=100)
+        env = AntEnv(render_hw = 100)
+        env = ExpanderWrapper(env)
         env.seed(seed = seed)
     elif env_name == 'gripper':
         from envs.mujoco.gripper_env import MultipleFetchPickAndPlaceEnv
         env = MultipleFetchPickAndPlaceEnv(seed = seed, obs_type = 'state', object_qty = env_kwargs.object_qty,
                                            object_names = env_kwargs.object_names)
+        env = ExpanderWrapper(env)
     elif env_name == 'pixel_gripper':
         from envs.mujoco.gripper_env import MultipleFetchPickAndPlaceEnv
         env = MultipleFetchPickAndPlaceEnv(seed = seed, obs_type = 'pixels', object_qty = env_kwargs.object_qty,
                                            object_names = env_kwargs.object_names)
+    elif env_name == 'decoupled_gripper':
+        from envs.mujoco.gripper_env import MultipleFetchPickAndPlaceEnv
+        env = MultipleFetchPickAndPlaceEnv(seed = seed, obs_type = 'decoupled_state', object_qty = env_kwargs.object_qty,
+                                           object_names = env_kwargs.object_names)
     elif env_name.startswith('dmc'):
         from envs.custom_dmc_tasks import dmc
         from envs.custom_dmc_tasks.pixel_wrappers import RenderWrapper
-        assert encoder in ['cnn']  # Only support pixel-based environments
         if env_name == 'dmc_cheetah':
             env = dmc.make('cheetah_run_forward_color', obs_type='states', frame_stack=1, action_repeat=2, seed=seed)
             env = RenderWrapper(env)
@@ -89,7 +99,6 @@ def make_env(env_name, env_kwargs, encoder, max_path_length, seed, frame_stack, 
     elif env_name == 'kitchen':
         sys.path.append('lexa')
         from envs.lexa.mykitchen import MyKitchenEnv
-        assert encoder in ['cnn']  # Only support pixel-based environments
         assert seed is None, 'For some strange reason, this environment does not have any seed...'
         env = MyKitchenEnv(log_per_goal=True)
     else:
@@ -102,47 +111,69 @@ def make_env(env_name, env_kwargs, encoder, max_path_length, seed, frame_stack, 
     normalizer_kwargs = {}
 
     if normalizer_type == 'off':
-        env = consistent_normalize(env, normalize_obs = False, **normalizer_kwargs)
+        env = consistent_normalize(env, flatten_obs = False, normalize_obs = False, **normalizer_kwargs)
     elif normalizer_type == 'squashed':
         env = consistent_normalize(env, flatten_obs = False, normalize_obs = True, 
                                    mean = 255. / 2, std = 255. / 2)
     elif normalizer_type == 'preset':
         normalizer_name = env_name
         normalizer_mean, normalizer_std = get_normalizer_preset(f'{normalizer_name}_preset')
-        env = consistent_normalize(env, normalize_obs = True, mean = normalizer_mean, std = normalizer_std, 
+        env = consistent_normalize(env, flatten_obs = False, normalize_obs = True, mean = normalizer_mean, std = normalizer_std, 
                                    **normalizer_kwargs)
 
     return env
 
 
 def fetch_activation(activation_name):
-    assert activation_name in ['relu', 'tanh'], 'Only relu or tanh are supported as activations'
+    assert activation_name in ['relu', 'tanh', 'elu'], 'Only relu, elu or tanh are supported as activations'
     if activation_name == 'relu':
         return torch.relu
     elif activation_name == 'tanh':
         return torch.tanh
+    elif activation_name == 'elu':
+        return torch.nn.functional.elu
 
 
 def fetch_dist_type(class_name):
     assert class_name in ['TanhNormal']
     if class_name == 'TanhNormal':
         return TanhNormal
-
-
-def build_policy_net(env, encoder, policy_net_config):
-    obs_dim, action_dim = env.spec.observation_space.flat_dim, env.spec.action_space.flat_dim
     
-    if encoder == 'cnn':
-        example_ob = np.transpose(env.reset(), [2, 0, 1])
-        depth = example_ob.shape[0]
+def fetch_extractor_and_pooler(extractor_config, pooler_config, channels = None, obs_size = None):
+    if extractor_config.name == 'cnn':
+        extractor = slot_extractors.CNNExtractor(channels = channels, obs_size = obs_size,
+                                                 act = fetch_activation(extractor_config.act),
+                                                 norm = extractor_config.norm, cnn_depth = extractor_config.cnn_depth,
+                                                 cnn_kernels = extractor_config.cnn_kernels,
+                                                 spectral_normalization = extractor_config.spectral_normalisation)
+    elif extractor_config.name == 'dummy':
+        extractor = slot_extractors.DummySlotExtractor(obs_size)
+    else:
+        assert False, 'Unknown pooler'
 
-        encoder = Encoder(pixel_depth = depth, obs_key = 'obs', concat_keys = ['option'])
-        example_ob = {'obs': torch.as_tensor(example_ob).float().unsqueeze(0), 
-                      'option': torch.zeros((1, policy_net_config.dim_option))}
-        module_obs_dim = encoder(example_ob).shape[-1]
-    elif encoder == 'concat':
-        encoder = ConcatEncoder(obs_key = 'obs', concat_keys = ['option'])
-        module_obs_dim = obs_dim + policy_net_config.dim_option
+    downstream_obs_size = extractor.outp_dim
+
+    if pooler_config.name == 'transformer':
+        pooler = slot_poolers.TransformerSlotAggregator(obs_dim = downstream_obs_size, 
+                                                            nhead = pooler_config.nhead, 
+                                                            dim_feedforward = pooler_config.dim_feedforward,
+                                                            num_layers = pooler_config.num_layers)
+    elif pooler_config.name == 'fetcher':
+        pooler = slot_poolers.Fetcher(downstream_obs_size)
+    else:
+        assert False, 'Unknown pooler'
+    return extractor, pooler
+
+def build_policy_net(env, policy_net_config):
+    obs_dim, action_dim = env.spec.observation_space.flat_dim, env.spec.action_space.flat_dim
+    if len(obs_dim.shape) == 3:
+        channels, obs_size = obs_dim[2], obs_dim[0:2]
+    else:
+        channels, obs_size = None, obs_dim
+
+    extractor, pooler = fetch_extractor_and_pooler(policy_net_config.slot_extractor, policy_net_config.slot_pooler,
+                                                   channels = channels, obs_size = obs_size)
+    module_obs_dim = pooler.outp_dim + policy_net_config.dim_option
     
     policy_module = GaussianMLPTwoHeadedModule(input_dim = module_obs_dim, output_dim = action_dim, 
                                                hidden_sizes = policy_net_config.hidden_sizes, 
@@ -152,26 +183,22 @@ def build_policy_net(env, encoder, policy_net_config):
                                                init_std = np.exp(policy_net_config.distribution.starting_logstd),
                                                normal_distribution_cls = fetch_dist_type(policy_net_config.distribution.type),
                                                output_w_init = functools.partial(xavier_normal, gain=1.))
-    
-    policy_module = WithEncoder(encoder = encoder, module = policy_module)
+    policy_module = pipeline.SkillObjectPipeline('obs', 'options', 'obj_idxs', 
+                                                 slot_extractor = extractor, slot_pooler = pooler, 
+                                                 downstream_model = policy_module, downstream_input_keys = ['obs', 'options'])
     return Policy(name = policy_net_config.name, module = policy_module)
 
 
-def build_trajectory_encoder(env, encoder, trajectory_net_config):
+def build_trajectory_encoder(env, trajectory_net_config):
     obs_dim = env.spec.observation_space.flat_dim
+    if len(obs_dim.shape) == 3:
+        channels, obs_size = obs_dim[2], obs_dim[0:2]
+    else:
+        channels, obs_size = None, obs_dim
 
-    if encoder == 'cnn':
-        example_ob = np.transpose(env.reset(), [2, 0, 1])
-        depth = example_ob.shape[0]
-
-        encoder = Encoder(pixel_depth = depth, obs_key = 'obs', concat_keys = [], 
-                          spectral_normalization=trajectory_net_config.spectral_normalization)
-        example_ob = {'obs': torch.as_tensor(example_ob).float().unsqueeze(0)}
-        module_obs_dim = encoder(example_ob).shape[-1]
-    elif encoder == 'concat':
-        encoder = ConcatEncoder(obs_key = 'obs', concat_keys = [])
-        module_obs_dim = obs_dim
-
+    extractor, pooler = fetch_extractor_and_pooler(trajectory_net_config.slot_extractor, trajectory_net_config.slot_pooler,
+                                                   channels = channels, obs_size = obs_size)
+    module_obs_dim = pooler.outp_dim
     traj_encoder = GaussianMLPIndependentStdModule(hidden_sizes = trajectory_net_config.hidden_sizes, 
                                                    std_hidden_sizes = trajectory_net_config.hidden_sizes,
                                                    hidden_nonlinearity = fetch_activation(trajectory_net_config.nonlinearity),
@@ -189,36 +216,64 @@ def build_trajectory_encoder(env, encoder, trajectory_net_config):
                                                    output_dim = trajectory_net_config.dim_option,
                                                    spectral_normalization = trajectory_net_config.spectral_normalization)
     
-    traj_encoder = WithEncoder(module = traj_encoder, encoder = encoder)
+    traj_encoder = pipeline.SkillObjectPipeline('obs', 'options', 'obj_idxs', 
+                                                 slot_extractor = extractor, slot_pooler = pooler, 
+                                                 downstream_model = traj_encoder, downstream_input_keys = ['obs'])
     return traj_encoder
 
 
-def build_q_net(env, encoder, q_net_config):
+def build_q_net(env, q_net_config):
     obs_dim, action_dim = env.spec.observation_space.flat_dim, env.spec.action_space.flat_dim
+    if len(obs_dim.shape) == 3:
+        channels, obs_size = obs_dim[2], obs_dim[0:2]
+    else:
+        channels, obs_size = None, obs_dim
 
-    if encoder == 'cnn':
-        example_ob = np.transpose(env.reset(), [2, 0, 1])
-        depth = example_ob.shape[0]
+    extractor, pooler = fetch_extractor_and_pooler(q_net_config.slot_extractor, q_net_config.slot_pooler,
+                                                   channels = channels, obs_size = obs_size)
+    module_obs_dim = pooler.outp_dim + q_net_config.dim_option + action_dim
 
-        encoder = Encoder(pixel_depth = depth, obs_key = 'obs', concat_keys = ['option'])
-        example_ob = {'obs': torch.as_tensor(example_ob).float().unsqueeze(0), 
-                      'option': torch.zeros((1, q_net_config.dim_option))}
-        module_obs_dim = encoder(example_ob).shape[-1]
-    elif encoder == 'concat':
-        encoder = ConcatEncoder(obs_key = 'obs', concat_keys = ['option'])
-        module_obs_dim = obs_dim + q_net_config.dim_option
-
-    q = ContinuousMLPQFunction(obs_dim = module_obs_dim, action_dim = action_dim, 
-                               hidden_sizes = q_net_config.hidden_sizes,
-                               hidden_nonlinearity = fetch_activation(q_net_config.nonlinearity))
+    q = MLPModule(input_dim = module_obs_dim, output_dim = 1,
+                  hidden_sizes = q_net_config.hidden_sizes,
+                  hidden_nonlinearity = fetch_activation(q_net_config.nonlinearity),
+                  hidden_w_init = torch.nn.init.xavier_normal_,
+                  hidden_b_init = torch.nn.init.zeros_,
+                  output_nonlinearity = None,
+                  output_w_init = torch.nn.init.xavier_normal_,
+                  output_b_init = torch.nn.init.zeros_,
+                  layer_normalization = q_net_config.layer_normalization)
     
-    q = WithEncoder(module = q, encoder = encoder)
+    q = pipeline.SkillObjectPipeline('obs', 'options', 'obj_idxs', 
+                                     slot_extractor = extractor, slot_pooler = pooler, 
+                                     downstream_model = q, downstream_input_keys = ['obs', 'options', 'actions'])
     return q
     
 
-def build_dist_predictor(dual_dist_name):
-    assert dual_dist_name in ['l2', 'one'], 's2_from_s and other distances are not supported. Yet...'
-    return None
+def build_dist_predictor(env, dual_dist_name, dual_dist_config):
+    assert dual_dist_name in ['l2', 'one', 's2_from_s'], 's2_from_s and other distances are not supported. Yet...'
+    
+    if dual_dist_name in ['l2', 'one']:
+        return None
+    
+    elif dual_dist_name == 's2_from_s':
+        obs_dim = env.spec.observation_space.flat_dim
+        dist_predictor = GaussianMLPIndependentStdModule(hidden_sizes = dual_dist_config.hidden_sizes, 
+                                        std_hidden_sizes = dual_dist_config.hidden_sizes,
+                                        hidden_nonlinearity = fetch_activation(dual_dist_config.nonlinearity),
+                                        std_hidden_nonlinearity = fetch_activation(dual_dist_config.nonlinearity),
+                                        std_hidden_w_init = torch.nn.init.xavier_uniform_, 
+                                        std_output_w_init = torch.nn.init.xavier_uniform_,
+                                        hidden_w_init = torch.nn.init.xavier_uniform_, 
+                                        output_w_init = torch.nn.init.xavier_uniform_,
+                                        init_std = dual_dist_config.init_std,
+                                        min_std = dual_dist_config.min_std,
+                                        max_std = dual_dist_config.max_std,
+                                        std_parameterization = dual_dist_config.std_parameterization,
+                                        bias = dual_dist_config.bias,
+                                        input_dim = obs_dim, 
+                                        output_dim = obs_dim,
+                                        spectral_normalization = dual_dist_config.spectral_normalization)
+        return dist_predictor
 
 
 def build_skill_dynamics(skill_algo_name):
@@ -239,18 +294,16 @@ def run():
     set_seed(config.globals.seed)
     make_seeded_env = functools.partial(make_env, env_name = config.env.name, 
                                         env_kwargs = config.env.env_kwargs,
-                                        encoder = config.globals.encoder,
                                         max_path_length = config.env.max_path_length,
                                         frame_stack = config.env.frame_stack, 
                                         normalizer_type = config.env.normalizer_type)
     env = make_seeded_env(seed = config.globals.seed)
 
-    option_policy = build_policy_net(env, encoder = config.globals.encoder, 
-                                     policy_net_config = config.rl_algo.policy)
+    option_policy = build_policy_net(env, policy_net_config = config.rl_algo.policy)
 
-    traj_encoder = build_trajectory_encoder(env, encoder = config.globals.encoder,
-                                            trajectory_net_config = config.skill.trajectory_encoder)
-    dist_predictor = None
+    traj_encoder = build_trajectory_encoder(env, trajectory_net_config = config.skill.trajectory_encoder)
+    METRA_optimizer_keys = ['traj_encoder', 'dual_lam']
+    dist_predictor = build_dist_predictor(env, config.skill.dual_dist_name, dual_dist_config = config.skill.dual_dist)
     skill_dynamics = None
 
     dual_lam = ParameterModule(torch.Tensor([np.log(config.skill.dual_lam)]))
@@ -267,13 +320,19 @@ def run():
         ]),
     }
 
+    if dist_predictor is not None:
+        optimizers['dist_predictor'] = torch.optim.Adam([
+            {'params': dist_predictor.parameters(), 'lr': config.skill.dual_dist.lr},
+        ])
+        METRA_optimizer_keys.append('dist_predictor')
+
     pixel_keys = ['obs', 'next_obs'] if config.env.name in ['dmc_cheetah', 'dmc_quadruped', 'dmc_humanoid', 'pixel_gripper'] else []
     replay_buffer = PathBuffer(capacity_in_transitions = int(config.replay_buffer.max_transitions), 
                                pixel_keys = pixel_keys, discount = config.replay_buffer.discount)
     
-    qf1, qf2 = build_q_net(env, encoder = config.globals.encoder, q_net_config = config.rl_algo.critics),\
-        build_q_net(env, encoder = config.globals.encoder, q_net_config = config.rl_algo.critics)
-        
+    qf1, qf2 = build_q_net(env, q_net_config = config.rl_algo.critics),\
+        build_q_net(env, q_net_config = config.rl_algo.critics)
+    
     log_alpha = ParameterModule(torch.Tensor([np.log(config.rl_algo.alpha.value)]))
     optimizers.update({
         'qf': torch.optim.Adam([
@@ -284,12 +343,12 @@ def run():
         ])
     })
 
-    metra = METRA(traj_encoder = traj_encoder, dual_lam = dual_lam, 
-                  optimizers = {key: optimizers[key] for key in ['traj_encoder', 'dual_lam']}, 
+    metra = METRA(traj_encoder = traj_encoder, dual_lam = dual_lam, dist_predictor = dist_predictor,
+                  optimizers = {key: optimizers[key] for key in METRA_optimizer_keys}, 
                   dim_option = config.skill.dim_option, discrete = config.skill.discrete, 
                   unit_length = config.skill.unit_length, device = config.globals.device, 
                   dual_reg = config.skill.dual_reg, dual_slack = config.skill.dual_slack, 
-                  dual_dist = config.skill.dual_dist)
+                  dual_dist = config.skill.dual_dist_name)
     
     sac_algo = SAC(qf1 = qf1, qf2 = qf2, log_alpha = log_alpha, tau = config.rl_algo.tau, 
                    scale_reward = config.rl_algo.scale_reward, target_coef = config.rl_algo.target_coef,
@@ -298,7 +357,7 @@ def run():
                    discount = config.rl_algo.discount, env_spec = env)
     env.close()
     
-    train_cycle(config.trainer_args, agent = sac_algo, skill_model = metra, replay_buffer=replay_buffer,
+    train_cycle(config.trainer_args, agent = sac_algo, skill_model = metra, replay_buffer = replay_buffer,
                 make_env_fn = make_seeded_env, seed = config.globals.seed, comet_logger = exp)
 
 
@@ -312,7 +371,7 @@ def update_traj_with_info(target_dict, infos, info_dict_name):
                     data = np.expand_dims(infos[key].copy(), axis = 0)
                 else:
                     data = infos[key].copy()
-            elif isinstance(infos[key], (np.float32, float)):
+            elif isinstance(infos[key], (np.int64, np.float32, float)):
                 data = np.array([infos[key]])
             else:
                 assert False, 'Something went horribly wrong...'
@@ -335,31 +394,32 @@ def update_traj_with_array(target_dict, array, array_key):
         target_dict[array_key] = np.append(target_dict[array_key], array, axis=0)
 
 
-def collect_trajectories(env, agent, trajectories_length, trajectories_qty = None, skill_model = None, 
-                         options = None):
-    if options is None:
-        options = skill_model._get_train_trajectories_kwargs(trajectories_qty)
+def collect_trajectories(env, agent, trajectories_length, n_objects = None, trajectories_qty = None, skill_model = None,
+                         options_and_obj_idxs = None):
+    if options_and_obj_idxs is None:
+        options_and_obj_idxs = skill_model._get_train_trajectories_kwargs(trajectories_qty, n_objects)
     else:
         assert (trajectories_qty is None) and (skill_model is None), """ It is expected, that when using options, 
         there are one trajectory per each option, and there is no need to sample new options """
-        trajectories_qty = len(options)
+        trajectories_qty = len(options_and_obj_idxs)
     
     env_qty = len(env.env_fns)
-    if isinstance(env, AsyncVectorEnv):
+    if isinstance(env, (AsyncVectorEnv, SyncVectorEnv)):
         pseudoepisodes = math.ceil(trajectories_qty / len(env.env_fns))
     else:
         pseudoepisodes = trajectories_qty
     
     generated_trajectories = [{} for i in range(trajectories_qty)]
     for pseudoepisode in range(pseudoepisodes):
-        cur_options = np.array([options[pseudoepisode * env_qty + i]['option'] for i in range(env_qty)])
+        cur_options = np.array([options_and_obj_idxs[pseudoepisode * env_qty + i]['options'] for i in range(env_qty)])
+        cur_obj_idx = np.array([options_and_obj_idxs[pseudoepisode * env_qty + i]['obj_idxs'] for i in range(env_qty)])
         prev_obs = env.reset()
         prev_obs = np.transpose(prev_obs, [0, 3, 1, 2]) if len(prev_obs.shape) == 4 else prev_obs
         prev_dones = np.full((env_qty,), fill_value=False)
         for i in range(trajectories_length):
-            obs_and_option = {'obs': prev_obs, 'option': cur_options}
+            obs_and_option = {'obs': prev_obs, 'options': cur_options, 'obj_idxs': cur_obj_idx}
             action, action_info = agent.policy['option_policy'].get_actions(obs_and_option)
-            next_obs, rewards, dones, env_infos = env.step(action) # TODO pass render here. When switched from pointmaze to ant.
+            next_obs, rewards, dones, env_infos = env.step(action)
             next_obs = np.transpose(next_obs, [0, 3, 1, 2]) if len(next_obs.shape) == 4 else next_obs
             if (i == trajectories_length - 1):
                 dones = np.full((env_qty,), fill_value = True)
@@ -374,9 +434,9 @@ def collect_trajectories(env, agent, trajectories_length, trajectories_qty = Non
                     update_traj_with_array(generated_trajectories[i + pseudoepisode * env_qty], rewards[i: i+1], 
                                            'rewards')
                     update_traj_with_info(generated_trajectories[i + pseudoepisode * env_qty], env_infos[i], 'env_infos')
-
                     agent_info = deepcopy({key: action_info[key][i] for key in action_info.keys()})
-                    agent_info.update({'option': cur_options[i]})
+                    agent_info.update({'options': cur_options[i]})
+                    agent_info.update({'obj_idxs': cur_obj_idx[i]})
                     update_traj_with_info(generated_trajectories[i + pseudoepisode * env_qty], agent_info, 'agent_infos')
                     update_traj_with_array(generated_trajectories[i + pseudoepisode * env_qty], dones[i: i+1], 
                                            'dones')
@@ -390,53 +450,50 @@ def render_trajectories(env, agent, options, trajectories_length):
     videos = []
     trajectories_qty = len(options)
 
-    if isinstance(env.unwrapped, DMCGymWrapper):
+    render_step = True
+    if env.is_image:
         render_step = False
-    else:
-        render_step = True
     
     for pseudoepisode in range(trajectories_qty):
         videos.append([])
-        cur_option = np.array([options[pseudoepisode]['option']])
-        prev_obs = np.expand_dims(env.reset(), 0)
-        prev_obs = np.transpose(prev_obs, [0, 3, 1, 2]) if len(prev_obs.shape) == 4 else prev_obs
+        cur_option = np.array([options[pseudoepisode]['options']]).astype(np.float32)
+        cur_obj = np.array([options[pseudoepisode]['obj_idxs']])
+        prev_obs = env.reset()
         prev_done = False
 
         for i in range(trajectories_length):
-            obs_and_option = {'obs': prev_obs, 'option': cur_option}
-            action, action_info = agent.policy['option_policy'].get_actions(obs_and_option)
+            prev_obs = np.expand_dims(prev_obs, 0).astype(np.float32)
+            prev_obs = np.transpose(prev_obs, [0, 3, 1, 2]) if len(prev_obs.shape) == 4 else prev_obs
+            obs_and_option_and_obj = {'obs': prev_obs, 'options': cur_option, 'obj_idxs': cur_obj}
+            action, action_info = agent.policy['option_policy'].get_actions(obs_and_option_and_obj)
             action = action[0]
             if render_step:
                 next_obs, reward, done, env_info, img = env.render_step(action)
             else:
                 next_obs, reward, done, env_info = env.step(action)
-                img = next_obs.copy() * 255/2 + 255/2
+                img = (next_obs.copy() * 255/2 + 255/2).astype(np.uint8)
             videos[-1].append(img)
 
-            next_obs = np.expand_dims(next_obs, axis = 0)
-            next_obs = np.transpose(next_obs, [0, 3, 1, 2]) if len(next_obs.shape) == 4 else next_obs
+            prev_obs = next_obs
     return np.array(videos)
 
 def prepare_batch(batch, device = 'cuda'):
     data = {}
     for key, value in batch.items():
-        if value.shape[1] == 1 and 'option' not in key:
-            value = np.squeeze(value, axis=1)
-        data[key] = torch.from_numpy(value).float().to(device)
-    data['obs'] = {'obs': data['obs'], 'option': data['options']}
-    data['next_obs'] = {'obs': data['next_obs'], 'option': data['next_options']}
+        data[key] = torch.from_numpy(value).to(device)
     return data
 
 def train_cycle(trainer_config, agent, skill_model, replay_buffer, make_env_fn, seed, 
                 comet_logger):
-    env = AsyncVectorEnv([lambda: make_env_fn(seed = (seed + i)) for i in range(trainer_config.n_parallel)], 
-                         context='spawn')
-    eval_env = AsyncVectorEnv([lambda: make_env_fn(seed = (seed + i)) for i in range(trainer_config.n_parallel)], 
-                              context='spawn')
+    n_objects = make_env_fn(seed = 0).n_obj
+    env = SyncVectorEnv([lambda: make_env_fn(seed = (seed + i)) for i in range(trainer_config.n_parallel)])#, 
+                         #context='spawn')
+    eval_env = SyncVectorEnv([lambda: make_env_fn(seed = (seed + i)) for i in range(trainer_config.n_parallel)])#, 
+                              #context='spawn')
     
     cur_step = 0
     for i in range(trainer_config.n_epochs):
-        trajs = collect_trajectories(env = env, agent = agent, skill_model = skill_model, 
+        trajs = collect_trajectories(env = env, agent = agent, skill_model = skill_model, n_objects = n_objects,
                             trajectories_qty = trainer_config.traj_batch_size, 
                             trajectories_length = trainer_config.max_path_length)
         for traj in trajs:
@@ -479,12 +536,13 @@ def sample_eval_options(num_random_trajectories, skill_model):
             random_option_colors.extend([cm.get_cmap(cmap)(colors[i])[:3]])
         random_option_colors = np.array(random_option_colors)
     else:
-        random_options = np.random.randn(num_random_trajectories, skill_model.dim_option)
+        random_options = np.random.randn(num_random_trajectories, skill_model.dim_option).astype(np.float32)
         if skill_model.unit_length:
             random_options = random_options / np.linalg.norm(random_options, axis=1, keepdims=True)
         random_option_colors = get_option_colors(random_options * 4)
-    random_options = [{'option': opt} for opt in random_options]
+    random_options = [{'options': opt} for opt in random_options]
     return random_options, random_option_colors
+
 
 def sample_video_options(skill_model):
     if skill_model.discrete:
@@ -504,73 +562,99 @@ def sample_video_options(skill_model):
             video_options = np.random.randn(8, skill_model.dim_option)
             if skill_model.unit_length:
                 video_options = video_options / np.linalg.norm(video_options, axis=1, keepdims=True)
-        video_options = video_options.repeat(2, axis=0)
+        video_options = video_options.repeat(2, axis=0).astype(np.float32)
     return video_options
+
+
+def render_ori_trajectories(options, colors, n_objects, eval_env, example_env, agent, trajectories_length = 200):
+    if example_env.decoupled:
+        fig, ax = plt.subplots(nrows = n_objects, ncols = n_objects)
+    else:
+        fig, ax = plt.subplots(nrows = 1, ncols = n_objects)
+        if n_objects == 1:
+            ax = np.array([ax])
+        ax = np.array([ax])
+    
+    eval_options, random_trajectories = [], []
+    for obj_i in range(n_objects):
+        for elem in options:
+            eval_options.append({'options': elem['options'], 'obj_idxs': obj_i})
+        random_trajectories.append(collect_trajectories(env = eval_env, agent = agent, trajectories_length = 200, 
+                                                        options_and_obj_idxs = eval_options))
+        example_env.render_trajectories(random_trajectories[-1], colors, None, ax[obj_i])
+    fig.canvas.draw()
+    skill_img = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
+    skill_img = skill_img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+    
+    for a in np.reshape(ax, -1):
+        a.clear()
+    plt.close(fig)
+    return skill_img, random_trajectories
+
+
+def render_phi_plot(skill_model, random_trajectories, eval_color, sample_processor, device):
+    fig, ax = plt.subplots(1, len(random_trajectories))
+    if not isinstance(ax, np.ndarray):
+        ax = np.array([ax])
+
+    for i, random_trajectories_per_obj in enumerate(random_trajectories):
+        data = sample_processor(random_trajectories_per_obj)
+        last_obs = torch.stack([torch.from_numpy(ob[-1]).to(device) for ob in data['obs']]).float()
+        last_obj_idx = torch.tensor([ob[-1].item() for ob in data['obj_idxs']]).to(device)
+        last_obs = {'obs': last_obs, 'obj_idxs': last_obj_idx}
+        
+        option_dists = skill_model.traj_encoder(last_obs)
+        option_means = option_dists.mean.detach().cpu().numpy()
+        option_stddevs = torch.ones_like(option_dists.stddev.detach().cpu()).numpy()
+        option_samples = option_dists.mean.detach().cpu().numpy()
+
+        draw_2d_gaussians(option_means, option_stddevs, eval_color, ax[i])
+        draw_2d_gaussians(option_samples, [[0.03, 0.03]] * len(option_samples), eval_color, ax[i], fill=True, 
+                          use_adaptive_axis=True)
+    fig.canvas.draw()
+    phi_img = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
+    phi_img = phi_img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+    for a in ax:
+        a.clear()
+
+    plt.close(fig)
+    return phi_img
 
 
 def eval_metrics(env, example_env, agent, skill_model, num_random_trajectories, 
                  sample_processor, example_env_name, example_env_kwargs, device, comet_logger, step):
     
     eval_options, eval_color = sample_eval_options(num_random_trajectories, skill_model)
+    n_objects = example_env.n_obj
+
     # Switch policy to evaluation mode
     agent.option_policy._force_use_mode_actions = True
     print('Warning! In old version _action_noise_std was setting to None seemingly does not exist.\
            Proceed with caution for new environments')
-    random_trajectories = collect_trajectories(env = env, agent = agent, trajectories_length = 200, 
-                                               options = eval_options)
-    if example_env_kwargs is not None:
-        fig, ax = plt.subplots(nrows = 1, ncols = (example_env_kwargs.object_qty + 1))
-    else:
-        fig, ax = plt.subplots(nrows = 1, ncols = 1)
-        ax = np.array([ax])
-    example_env.render_trajectories(random_trajectories, eval_color, None, ax)
-    fig.canvas.draw()
-    skill_img = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
-    skill_img = skill_img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
-    if isinstance(ax, np.ndarray):
-        for a in ax:
-            a.clear()
-    else:
-        ax.clear()
-    plt.close(fig)
+    skill_img, option_trajectories = render_ori_trajectories(options = eval_options, colors = eval_color, 
+                            n_objects = n_objects, eval_env = env, example_env = example_env, agent = agent)
     comet_logger.log_image(image_data = skill_img, name = "Skill trajs", step = step)
 
-    data = sample_processor(random_trajectories)
-    last_obs = torch.stack([torch.from_numpy(ob[-1]).to(device) for ob in data['obs']]).float()
-    last_obs = {'obs': last_obs}
-    option_dists = skill_model.traj_encoder(last_obs)
-
-    option_means = option_dists.mean.detach().cpu().numpy()
-    option_stddevs = torch.ones_like(option_dists.stddev.detach().cpu()).numpy()
-    option_samples = option_dists.mean.detach().cpu().numpy()
-
-    option_colors = eval_color
-
-    fig, ax = plt.subplots()
-    draw_2d_gaussians(option_means, option_stddevs, option_colors, ax)
-    draw_2d_gaussians(option_samples, [[0.03, 0.03]] * len(option_samples), option_colors, ax, fill=True, 
-                      use_adaptive_axis=True)
-    fig.canvas.draw()
-    phi_img = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
-    phi_img = phi_img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
-    plt.close(fig), ax.clear()
+    phi_img = render_phi_plot(skill_model = skill_model, random_trajectories = option_trajectories, 
+                    eval_color=eval_color, sample_processor = sample_processor, device = device)
     comet_logger.log_image(image_data = phi_img, name = "Phi plot", step = step)
 
     # Videos
+    videos = []
     video_options = sample_video_options(skill_model)
-    video_options = [{'option': opt} for opt in video_options]
-    video_trajectories = render_trajectories(env = example_env, agent = agent, trajectories_length = 200, 
-                                             options = video_options)
+    for obj_idx in range(n_objects):
+        video_options = [{'options': opt, 'obj_idxs': obj_idx} for opt in video_options]
+        video_trajectories = render_trajectories(env = example_env, agent = agent, trajectories_length = 200, 
+                                                 options = video_options)
+        videos.append(video_trajectories)
     
     agent.option_policy._force_use_mode_actions = False
-    path_to_video = record_video(video_trajectories, skip_frames = 2)
-    comet_logger.log_video(file = path_to_video, name = 'Skill videos', step = step)
+    for i, video in enumerate(videos):
+        path_to_video = record_video(video, skip_frames = 2)
+        comet_logger.log_video(file = path_to_video, name = 'Skill videos №{}'.format(i), step = step)
     
-    comet_logger.log_metrics(example_env.calc_eval_metrics(random_trajectories, is_option_trajectories=True), step = step)
+    comet_logger.log_metrics(example_env.calc_eval_metrics(option_trajectories[0], is_option_trajectories=True), step = step)
     example_env.close()
-
-def convert_image_array_to_videos(trajectories):
-    return (np.array(trajectories) * (255 / 2) + (255 / 2)).astype(np.uint8)
 
 if __name__ == '__main__':
     matplotlib.use('Agg')

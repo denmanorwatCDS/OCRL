@@ -57,11 +57,14 @@ class SAC:
         return get_torch_concat_obs(obs, option)
 
     def optimize_op(self, modified_batch):
-
         logs = self._update_loss_qf(
             obs=modified_batch['obs'],
+            options=modified_batch['options'],
             actions=modified_batch['actions'],
+            obj_idxs=modified_batch['obj_idxs'],
             next_obs=modified_batch['next_obs'],
+            next_options=modified_batch['next_options'],
+            next_obj_idxs=modified_batch['next_obj_idxs'],
             dones=modified_batch['dones'],
             rewards=modified_batch['rewards'] * self._reward_scale_factor,
             policy=self.option_policy,
@@ -71,7 +74,7 @@ class SAC:
             optimizer_keys=['qf'],
         )
         
-        logs.update(self._update_loss_sacp(modified_batch, obs=modified_batch['obs'],))
+        logs.update(self._update_loss_sacp(modified_batch,))
         self._gradient_descent(
             logs['LossSacp'],
             optimizer_keys=['option_policy'],
@@ -103,19 +106,24 @@ class SAC:
                 
     def _update_loss_qf(self,
         obs,
+        options,
         actions,
+        obj_idxs,
         next_obs,
+        next_options,
+        next_obj_idxs,
         dones,
         rewards,
         policy,
     ):
         with torch.no_grad():
             alpha = self.log_alpha.param.exp()
+        q_obs = {'obs': obs, 'options': options, 'actions': actions, 'obj_idxs': obj_idxs}
+        q1_pred = self.qf1(q_obs).flatten()
+        q2_pred = self.qf2(q_obs).flatten()
 
-        q1_pred = self.qf1(obs, actions).flatten()
-        q2_pred = self.qf2(obs, actions).flatten()
-
-        next_action_dists, *_ = policy(next_obs)
+        p_next_obs = {'obs': next_obs, 'options': next_options, 'obj_idxs': next_obj_idxs}
+        next_action_dists, *_ = policy(p_next_obs)
         if hasattr(next_action_dists, 'rsample_with_pre_tanh_value'):
             new_next_actions_pre_tanh, new_next_actions = next_action_dists.rsample_with_pre_tanh_value()
             new_next_action_log_probs = next_action_dists.log_prob(new_next_actions, pre_tanh_value=new_next_actions_pre_tanh)
@@ -124,15 +132,16 @@ class SAC:
             new_next_actions = self._clip_actions(new_next_actions)
             new_next_action_log_probs = next_action_dists.log_prob(new_next_actions)
 
+        p_next_obs['actions'] = new_next_actions
         target_q_values = torch.min(
-            self.target_qf1(next_obs, new_next_actions).flatten(),
-            self.target_qf2(next_obs, new_next_actions).flatten(),
+            self.target_qf1(p_next_obs).flatten(),
+            self.target_qf2(p_next_obs).flatten(),
         )
         target_q_values = target_q_values - alpha * new_next_action_log_probs
         target_q_values = target_q_values * self.discount
 
         with torch.no_grad():
-            q_target = rewards + target_q_values * (1. - dones)
+            q_target = rewards + target_q_values * (1. - dones.float())
 
         # critic loss weight: 0.5
         loss_qf1 = F.mse_loss(q1_pred, q_target) * 0.5
@@ -146,11 +155,12 @@ class SAC:
         }
         
     def _update_loss_sacp(
-            self, batch, obs
+            self, batch,
     ):
         with torch.no_grad():
             alpha = self.log_alpha.param.exp()
 
+        obs = {'obs': batch['obs'], 'options': batch['options'], 'obj_idxs': batch['obj_idxs']}
         action_dists, *_ = self.option_policy(obs)
         if hasattr(action_dists, 'rsample_with_pre_tanh_value'):
             new_actions_pre_tanh, new_actions = action_dists.rsample_with_pre_tanh_value()
@@ -159,10 +169,10 @@ class SAC:
             new_actions = action_dists.rsample()
             new_actions = self._clip_actions(new_actions)
             new_action_log_probs = action_dists.log_prob(new_actions)
-
+        obs['actions'] = new_actions
         min_q_values = torch.min(
-            self.qf1(obs, new_actions).flatten(),
-            self.qf2(obs, new_actions).flatten(),
+            self.qf1(obs).flatten(),
+            self.qf2(obs).flatten(),
         )
 
         loss_sacp = (alpha * new_action_log_probs - min_q_values).mean()
