@@ -35,3 +35,14 @@ class SkillObjectPipeline(nn.Module):
                 continue
             downstream_input = torch.cat([downstream_input, inputs[key]], dim = -1)
         return self.downstream_model.forward_mode(downstream_input)
+    
+class DictPipeline(nn.Module):
+    def __init__(self, downstream_model):
+        super().__init__()
+        self.downstream_model = downstream_model
+    
+    def forward(self, inputs):
+        return self.downstream_model(inputs['obs'])
+    
+    def forward_mode(self, inputs):
+        return self.downstream_model.forward_mode(inputs['obs'])

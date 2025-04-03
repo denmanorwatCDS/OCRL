@@ -1,6 +1,7 @@
 import collections
 import numpy as np
 import scipy
+import copy
 
 def discount_cumsum(x, discount):
     """Discounted cumulative sum.
@@ -20,6 +21,66 @@ def discount_cumsum(x, discount):
     return scipy.signal.lfilter([1], [1, float(-discount)], x[::-1],
                                 axis=0)[::-1]
 
+def calculate_GAE(rewards, values, next_values, dones, discount, gae_lambda):
+    # All arrays are expected to be of size len. 
+    # This is because second dimension is always one for rewards, values, next_values and dones. 
+    # All inputs are lists.
+    
+    # Preprocess obs so they can be processed in parallel
+    max_length = -1
+    for traj in rewards:
+        max_length = max(traj.shape[0], max_length)
+    
+    # Pad all trajectories to the same size (If needed)
+    trajectory_info = {'rewards': [], 'values': [], 'next_values': [], 'dones': []}
+    for name, data_array in zip(['rewards', 'values', 'next_values'], [rewards, values, next_values]):
+        for data_traj in data_array:
+            if data_traj.shape[0] < max_length:
+                trajectory_info[name].append(np.concatenate([data_traj, np.zeros(max_length - data_traj.shape[0])]))
+            else:
+                trajectory_info[name].append(data_traj)
+        trajectory_info[name] = np.stack(trajectory_info[name], axis = 0)
+
+    for done_traj in dones:
+        if done_traj.shape[0] < max_length:
+            trajectory_info['dones'].append(np.concatenate([done_traj, np.ones(max_length - done_traj.shape[0])\
+                                                            .astype(np.bool_)]))
+        else:
+            trajectory_info['dones'].append(done_traj)
+    trajectory_info['dones'] = np.stack(trajectory_info['dones'], axis = 0)
+    
+    # Calculate GAE
+    last_gae_lambda = np.zeros(trajectory_info['dones'].shape[0])
+    advantages = np.zeros(trajectory_info['dones'].shape)
+    rewards, dones = trajectory_info['rewards'], trajectory_info['dones']
+    values, next_values = trajectory_info['values'], trajectory_info['next_values']
+    for t in reversed(range(max_length)):
+        nonterminal = 1 - trajectory_info['dones'][:, t]
+
+        # (Q(s, a) - V(s)): single-sample advantage
+        delta = (rewards[:, t] + discount * next_values[:, t] * nonterminal) - values[:, t]
+        
+        # Generalized Advantage Estimation
+        advantages[:, t] = last_gae_lambda = delta + discount * gae_lambda * nonterminal * last_gae_lambda
+    returns = advantages + values
+    
+    # Remove padding (if, for current state, done for previous timestep and current timestep are both true,
+    # then this entry is a padding one)
+    prev_entry = np.zeros(dones[:, 0].shape).astype(np.bool_)
+    mask = []
+    for t in range(dones.shape[1]):
+        mask.append(~np.bitwise_and(prev_entry, dones[:, t]))
+        prev_entry = dones[:, t]
+    mask = np.stack(mask, axis = 1)
+    
+    trajectory_info.update({'returns': [], 'advantages': []})
+    for name, data_batch in zip(['returns', 'advantages'], [returns, advantages]):
+        for i, data_trajectory in enumerate(data_batch):
+            trajectory_info[name].append(data_trajectory[mask[i]])
+    
+    return trajectory_info['returns'], trajectory_info['advantages']
+    
+
 class PathBuffer:
     """A replay buffer that stores and can sample whole paths.
 
@@ -31,17 +92,21 @@ class PathBuffer:
 
     """
 
-    def __init__(self, capacity_in_transitions, pixel_keys, discount):
+    def __init__(self, capacity_in_transitions, batch_size, pixel_keys, discount, gae_lambda, on_policy):
         self._capacity = capacity_in_transitions
+        self.batch_size = batch_size
         self._transitions_stored = 0
         self._first_idx_of_next_path = 0
         self.discount = discount
+        self.gae_lambda = gae_lambda
+        self.on_policy = on_policy
         # Each path in the buffer has a tuple of two ranges in
         # self._path_segments. If the path is stored in a single contiguous
         # region of the buffer, the second range will be range(0, 0).
         # The "left" side of the deque contains the oldest path.
         self._path_segments = collections.deque()
         self._buffer = {}
+        self.recent_paths = []
 
         self._pixel_keys = pixel_keys
 
@@ -67,8 +132,8 @@ class PathBuffer:
         self._path_segments.append((first_seg, second_seg))
         for key, array in path.items():
             buf_arr = self._get_or_allocate_key(key, array)
-            buf_arr[first_seg.start:first_seg.stop] = array[:len(first_seg)]
-            buf_arr[second_seg.start:second_seg.stop] = array[len(first_seg):]
+            buf_arr[first_seg.start: first_seg.stop] = array[:len(first_seg)]
+            buf_arr[second_seg.start: second_seg.stop] = array[len(first_seg):]
         if second_seg.stop != 0:
             self._first_idx_of_next_path = second_seg.stop
         else:
@@ -76,7 +141,13 @@ class PathBuffer:
         self._transitions_stored = min(self._capacity,
                                        self._transitions_stored + path_len)
 
-    def sample_transitions(self, batch_size):
+    def fetch_transitions(self, idxs):
+        batch = {key: buf_arr[idxs] for key, buf_arr in self._buffer.items()}
+        for key in self._pixel_keys:
+            batch[key] = ((batch[key] - (255 / 2)) / (255 / 2)).astype(np.float32)
+        return batch
+
+    def sample_transitions(self, batch_size = None):
         """Sample a batch of transitions from the buffer.
 
         Args:
@@ -86,12 +157,10 @@ class PathBuffer:
             dict: A dict of arrays of shape (batch_size, flat_dim).
 
         """
-        idx = np.random.choice(self._transitions_stored, batch_size)
-        batch = {key: buf_arr[idx] for key, buf_arr in self._buffer.items()}
-        for key in self._pixel_keys:
-            batch[key] = (batch[key] - (255 / 2)) / (255 / 2)
-            
-        return batch
+        if batch_size is None:
+            batch_size = self.batch_size
+        idxs = np.random.choice(self._transitions_stored, batch_size)
+        return self.fetch_transitions(idxs)
 
     def _next_path_segments(self, n_indices):
         """Compute where the next path should be stored.
@@ -146,25 +215,26 @@ class PathBuffer:
             if 'obs' in self._pixel_keys:
                 assert np.bitwise_and(np.all(path['observations'] > -1.01), np.all(path['observations'] < 1.01)),\
                     'Expected normalized images'
-                path['observations'] = ((path['observations'] * 255 / 2) + 255 / 2).astype(np.uint8)
+                path['observations'] = np.rint((path['observations'] * 255 / 2) + 255 / 2).astype(np.uint8)
 
             if 'next_obs' in self._pixel_keys:
                 assert np.bitwise_and(np.all(path['next_observations'] > -1.01), np.all(path['next_observations'] < 1.01)),\
                     'Expected normalized images'
-                path['next_observations'] = ((path['next_observations'] * 255 / 2) + 255 / 2).astype(np.uint8)
+                path['next_observations'] = np.rint((path['next_observations'] * 255 / 2) + 255 / 2).astype(np.uint8)
 
             data['obs'].append(path['observations'])
             data['next_obs'].append(path['next_observations'])
             data['actions'].append(path['actions'])
             data['rewards'].append(path['rewards'])
             data['dones'].append(path['dones'])
-            data['returns'].append(discount_cumsum(path['rewards'], self.discount))
-            data['ori_obs'].append(path['env_infos']['ori_obs'])
-            data['next_ori_obs'].append(path['env_infos']['next_ori_obs'])
+            if 'ori_obs' in path['env_infos'].keys():
+                data['ori_obs'].append(path['env_infos']['ori_obs'])
+            if 'next_ori_obs' in path['env_infos'].keys():
+                data['next_ori_obs'].append(path['env_infos']['next_ori_obs'])
             if 'pre_tanh_value' in path['agent_infos']:
                 data['pre_tanh_values'].append(path['agent_infos']['pre_tanh_value'])
-            if 'log_prob' in path['agent_infos']:
-                data['log_probs'].append(path['agent_infos']['log_prob'])
+            if 'log_probs' in path['agent_infos']:
+                data['log_probs'].append(path['agent_infos']['log_probs'])
             if 'options' in path['agent_infos']:
                 data['options'].append(path['agent_infos']['options'])
                 data['next_options'].append(np.concatenate([path['agent_infos']['options'][1:], 
@@ -173,15 +243,50 @@ class PathBuffer:
                 data['obj_idxs'].append(path['agent_infos']['obj_idxs'])
                 data['next_obj_idxs'].append(np.concatenate([path['agent_infos']['obj_idxs'][1:], 
                                                              path['agent_infos']['obj_idxs'][-1:]], axis=0))
+        if self.on_policy and 'values' in paths[0]['agent_infos'].keys() and 'next_values' in paths[0]['agent_infos'].keys():
+            rewards = [paths[i]['rewards'] for i in range(len(paths))]
+            values = [paths[i]['agent_infos']['values'] for i in range(len(paths))]
+            next_values = [paths[i]['agent_infos']['next_values'] for i in range(len(paths))]
+            dones = [paths[i]['dones'] for i in range(len(paths))]
+            rets, advs = calculate_GAE(rewards, values, next_values, dones, self.discount, self.gae_lambda)
+            for ret, adv, vals, next_vals, in zip(rets, advs, values, next_values):
+                data['returns'].append(ret)
+                data['advantages'].append(adv)
+                data['values'].append(vals)
+                data['next_values'].append(next_vals)
         return data
+    
+    def store_recent_paths(self, paths):
+        for path in paths:
+            self.recent_paths.append(path)
+
+    def pop_recent_paths(self):
+        outp = copy.deepcopy(self.recent_paths)
+        del self.recent_paths
+        self.recent_paths = []
+        return outp
 
     def update_replay_buffer(self, data):
+        if self.on_policy:
+            self.store_recent_paths(data)
+
         data = dict(self.preprocess_data(data))
         for i in range(len(data['actions'])):
             path = {}
             for key in data.keys():
                 path[key] = data[key][i]
             self.add_path(path)
+
+    def fetch_trajectories(self):
+        qty_of_path_segments = len(self._path_segments)
+        path_batch = []
+        for i in range(qty_of_path_segments):
+            path_segments = list(self._path_segments)[i]
+            first_seg, second_seg = path_segments[0], path_segments[1]
+            idxs = list(first_seg) + list(second_seg)
+            path = self.fetch_transitions(idxs)
+            path_batch.append(path)
+        return path_batch
 
     @staticmethod
     def _get_path_length(path):

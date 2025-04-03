@@ -136,6 +136,10 @@ class DMCGymWrapper(core.Env):
     @property
     def decoupled(self):
         return False
+    
+    @property
+    def is_pixel(self):
+        return True
 
     def seed(self, seed):
         self._true_action_space.seed(seed)

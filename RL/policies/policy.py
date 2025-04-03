@@ -124,3 +124,8 @@ class Policy(torch.nn.Module):
             observation = observation.unsqueeze(0)
             action, agent_infos = self.get_actions(observation)
             return action[0], {k: v[0] for k, v in agent_infos.items()}
+        
+    def get_logprob_and_entropy(self, observations, actions):
+        dist, info = self.forward(observations = observations)
+        log_probs, entropy = dist.log_prob(actions), dist.entropy()
+        return log_probs, entropy

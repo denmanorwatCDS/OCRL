@@ -16,7 +16,7 @@ class CNNExtractor(nn.Module):
     def __init__(self, channels, obs_size, act=nn.ELU, norm='none', cnn_depth=48, cnn_kernels=(4, 4, 4, 4), 
                  spectral_normalization=False):
         super().__init__()
-        assert len(obs_size.shape) == 2, 'CNN extractor works only for images'
+        assert len(obs_size) == 2, 'CNN extractor works only for images'
         self._num_inputs = channels
         self._act = act()
         self._norm = norm
@@ -38,9 +38,9 @@ class CNNExtractor(nn.Module):
             self._conv_model.append(self._act)
         self._conv_model = nn.Sequential(*self._conv_model)
         
-        self.outp_dim = torch.prod(self.forward(torch.zeros((1, channels, *obs_size))).shape[1:])
+        self.outp_dim = torch.prod(torch.tensor(self.forward(torch.zeros((1, channels, *obs_size))).shape[1:]))
 
     def forward(self, data):
         output = self._conv_model(data)
-        output = output.reshape(output.shape[0], -1)
+        output = output.reshape(output.shape[0], 1, -1)
         return output

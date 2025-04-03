@@ -204,10 +204,6 @@ class GaussianMLPBaseModule(nn.Module):
 
         return dist
 
-    @abc.abstractmethod
-    def get_last_linear_layers(self):
-        pass
-
 class GaussianMLPIndependentStdModule(GaussianMLPBaseModule):
     """GaussianMLPModule which has two different mean and std network.
 
@@ -369,12 +365,6 @@ class GaussianMLPIndependentStdModule(GaussianMLPBaseModule):
 
         """
         return self._mean_module(inp), self._log_std_module(inp)
-
-    def get_last_linear_layers(self):
-        return {
-            'mean': self._mean_module.get_last_linear_layer(),
-            'std': self._log_std_module.get_last_linear_layer(),
-        }
     
 class GaussianMLPTwoHeadedModule(GaussianMLPBaseModule):
     """GaussianMLPModule which has only one mean network.
@@ -487,12 +477,96 @@ class GaussianMLPTwoHeadedModule(GaussianMLPBaseModule):
 
         """
         return self._shared_mean_log_std_network(inp)
-
-    def get_last_linear_layers(self):
-        return {
-            'mean': self._shared_mean_log_std_network.get_last_linear_layer(),
-        }
     
+    def forward_mode(self, inp):
+        mean, log_std_uncentered = self._get_mean_and_log_std(inp)
+
+        if self._min_std_param or self._max_std_param:
+            log_std_uncentered = log_std_uncentered.clamp(
+                min=(None if self._min_std_param is None else
+                     self._min_std_param.item()),
+                max=(None if self._max_std_param is None else
+                     self._max_std_param.item()))
+
+        if self._std_parameterization == 'exp':
+            std = log_std_uncentered.exp()
+        else:
+            std = log_std_uncentered.exp().exp().add(1.).log()
+
+        dist = self._norm_dist_class(mean, std)
+        # This control flow is needed because if a TanhNormal distribution is
+        # wrapped by torch.distributions.Independent, then custom functions
+        # such as rsample_with_pre_tanh_value of the TanhNormal distribution
+        # are not accessable.
+        if not isinstance(dist, TanhNormal):
+            # Makes it so that a sample from the distribution is treated as a
+            # single sample and not dist.batch_shape samples.
+            dist = Independent(dist, 1)
+
+        return dist.mean
+    
+class GaussianMLPGlobalStdModule(GaussianMLPBaseModule):
+    def __init__(self,
+                 input_dim,
+                 output_dim,
+                 hidden_sizes=(32, 32),
+                 hidden_nonlinearity=torch.tanh,
+                 hidden_w_init=nn.init.xavier_uniform_,
+                 hidden_b_init=nn.init.zeros_,
+                 output_nonlinearity=None,
+                 output_w_init=nn.init.xavier_uniform_,
+                 output_b_init=nn.init.zeros_,
+                 learn_std=True,
+                 init_std=1.0,
+                 min_std=1e-6,
+                 max_std=None,
+                 std_parameterization='exp',
+                 layer_normalization=False,
+                 normal_distribution_cls=Normal):
+        super(GaussianMLPGlobalStdModule,
+              self).__init__(input_dim=input_dim,
+                             output_dim=output_dim,
+                             hidden_sizes=hidden_sizes,
+                             hidden_nonlinearity=hidden_nonlinearity,
+                             hidden_w_init=hidden_w_init,
+                             hidden_b_init=hidden_b_init,
+                             output_nonlinearity=output_nonlinearity,
+                             output_w_init=output_w_init,
+                             output_b_init=output_b_init,
+                             learn_std=learn_std,
+                             init_std=init_std,
+                             min_std=min_std,
+                             max_std=max_std,
+                             std_parameterization=std_parameterization,
+                             layer_normalization=layer_normalization,
+                             normal_distribution_cls=normal_distribution_cls)
+        
+        self.mean_network = MLPModule(input_dim=self._input_dim,
+            output_dim=self._action_dim,
+            hidden_sizes=self._hidden_sizes,
+            hidden_nonlinearity=self._hidden_nonlinearity,
+            hidden_w_init=self._hidden_w_init,
+            hidden_b_init=self._hidden_b_init,
+            output_nonlinearity=self._output_nonlinearity,
+            output_w_init=self._output_w_init,
+            output_b_init=nn.init.zeros_,
+            layer_normalization=self._layer_normalization)
+        assert len(self._action_dim.shape) == 0
+        self._log_std_parameter = torch.nn.Parameter(torch.Tensor([init_std for i in range(self._action_dim)]).log())
+
+    def _get_mean_and_log_std(self, inp):
+        """Get mean and std of Gaussian distribution given inputs.
+
+        Args:
+            *inputs: Input to the module.
+
+        Returns:
+            torch.Tensor: The mean of Gaussian distribution.
+            torch.Tensor: The variance of Gaussian distribution.
+
+        """
+        return [self.mean_network(inp), self._log_std_parameter]
+
     def forward_mode(self, inp):
         mean, log_std_uncentered = self._get_mean_and_log_std(inp)
 

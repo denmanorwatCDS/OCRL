@@ -32,7 +32,7 @@ class MazeEnv(gym.Env):
         rmin, rmax = None, None
         for trajectory, color in zip(trajectories, colors):
             trajectory = np.array(trajectory)
-            ax.plot(trajectory[:, 0], trajectory[:, 1], color=color, linewidth=0.7)
+            ax[0].plot(trajectory[:, 0], trajectory[:, 1], color=color, linewidth=0.7)
 
             if rmin is None or rmin > np.min(trajectory[:, :2]):
                 rmin = np.min(trajectory[:, :2])
@@ -48,7 +48,7 @@ class MazeEnv(gym.Env):
         if plot_axis is not None:
             ax.axis(plot_axis)
         else:
-            ax.axis('scaled')
+            ax[0].axis('scaled')
 
     def render_trajectories(self, trajectories, colors, plot_axis, ax):
         coordinates_trajectories = self._get_coordinates_trajectories(trajectories)
@@ -72,3 +72,15 @@ class MazeEnv(gym.Env):
 
     def calc_eval_metrics(self, trajectories, is_option_trajectories):
         return {}
+
+    @property
+    def is_pixel(self):
+        return False
+    
+    @property
+    def n_obj(self):
+        return 1
+    
+    @property
+    def decoupled(self):
+        return False

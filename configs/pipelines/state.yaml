@@ -10,6 +10,12 @@ rl_algo:
       name: dummy
     slot_pooler:
       name: fetcher
+  
+  value:
+    slot_extractor:
+      name: dummy
+    slot_pooler:
+      name: fetcher
 
 skill:
   trajectory_encoder:

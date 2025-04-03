@@ -9,7 +9,7 @@ import math
 from envs.utils.consistent_normalized_env import consistent_normalize, get_normalizer_preset
 from envs.mujoco.obs_wrapper import ExpanderWrapper
 from networks import pipeline
-from networks.distribution_networks import GaussianMLPIndependentStdModule, GaussianMLPTwoHeadedModule
+from networks.distribution_networks import GaussianMLPIndependentStdModule, GaussianMLPTwoHeadedModule, GaussianMLPGlobalStdModule
 from networks.feature_extractors import slot_extractors, slot_poolers
 from utils.distributions.tanh import TanhNormal
 from utils.weight_initializer.xavier_init import xavier_normal
@@ -18,6 +18,7 @@ from ReplayBuffers.path_replay_buffer import PathBuffer
 from networks.mlp import MLPModule
 from skill_discovery.METRA.metra import METRA
 from RL.algos.sac import SAC
+from RL.algos.ppo import PPO
 from networks.parameter import ParameterModule
 from gym.vector import AsyncVectorEnv, SyncVectorEnv
 from copy import deepcopy
@@ -34,24 +35,27 @@ def set_seed(seed):
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
 
-
 def fetch_config():
     parser = argparse.ArgumentParser(prog='Metra')
-    parser.add_argument('--config')
+    parser.add_argument('--default_config')
     parser.add_argument('--pipeline_config')
+    parser.add_argument('--env_config')
     args = parser.parse_args()
-    config_folder = str(pathlib.Path(__file__).parent.resolve()) + '/configs'
-    config = config_folder + '/' + 'default.yaml'
-    config = omegaconf.OmegaConf.load(config)
-    if args.config != 'default':
-        subconfig = config_folder + '/' + args.config
-        subconfig = omegaconf.OmegaConf.load(subconfig)
-        config.merge_with(subconfig)
-    env_config = config_folder + '/pipelines/' + args.pipeline_config
-    env_config = omegaconf.OmegaConf.load(env_config)
-    config.merge_with(env_config)
 
-    return config
+    config_folder = str(pathlib.Path(__file__).parent.resolve()) + '/configs'
+    rl_config_path = config_folder + '/rl_algos/' + args.default_config
+    rl_config = omegaconf.OmegaConf.load(rl_config_path)
+    algo_name = rl_config.rl_algo.name.lower()
+
+    pipeline_config_path = config_folder + '/pipelines/' + args.pipeline_config
+    pipeline_config = omegaconf.OmegaConf.load(pipeline_config_path)
+    rl_config.merge_with(pipeline_config)
+
+    env_config_path = config_folder + '/' + args.env_config
+    env_config = omegaconf.OmegaConf.load(env_config_path)
+    rl_config.merge_with(env_config)
+
+    return rl_config
 
 def make_env(env_name, env_kwargs, max_path_length, seed, frame_stack, normalizer_type):
     if env_name == 'maze':
@@ -60,6 +64,7 @@ def make_env(env_name, env_kwargs, max_path_length, seed, frame_stack, normalize
             max_path_length=max_path_length,
             action_range=0.2,
         )
+        env = ExpanderWrapper(env)
     elif env_name == 'half_cheetah':
         from envs.mujoco.half_cheetah_env import HalfCheetahEnv
         env = HalfCheetahEnv(render_hw = 100)
@@ -131,7 +136,7 @@ def fetch_activation(activation_name):
     elif activation_name == 'tanh':
         return torch.tanh
     elif activation_name == 'elu':
-        return torch.nn.functional.elu
+        return torch.nn.ELU
 
 
 def fetch_dist_type(class_name):
@@ -139,8 +144,9 @@ def fetch_dist_type(class_name):
     if class_name == 'TanhNormal':
         return TanhNormal
     
+
 def fetch_extractor_and_pooler(extractor_config, pooler_config, channels = None, obs_size = None):
-    if extractor_config.name == 'cnn':
+    if extractor_config.name == 'CNN':
         extractor = slot_extractors.CNNExtractor(channels = channels, obs_size = obs_size,
                                                  act = fetch_activation(extractor_config.act),
                                                  norm = extractor_config.norm, cnn_depth = extractor_config.cnn_depth,
@@ -155,27 +161,29 @@ def fetch_extractor_and_pooler(extractor_config, pooler_config, channels = None,
 
     if pooler_config.name == 'transformer':
         pooler = slot_poolers.TransformerSlotAggregator(obs_dim = downstream_obs_size, 
-                                                            nhead = pooler_config.nhead, 
-                                                            dim_feedforward = pooler_config.dim_feedforward,
-                                                            num_layers = pooler_config.num_layers)
+                                                        nhead = pooler_config.nhead, 
+                                                        dim_feedforward = pooler_config.dim_feedforward,
+                                                        num_layers = pooler_config.num_layers)
     elif pooler_config.name == 'fetcher':
         pooler = slot_poolers.Fetcher(downstream_obs_size)
     else:
         assert False, 'Unknown pooler'
     return extractor, pooler
 
+
 def build_policy_net(env, policy_net_config):
-    obs_dim, action_dim = env.spec.observation_space.flat_dim, env.spec.action_space.flat_dim
+    obs_dim, action_dim = env.spec.observation_space, env.spec.action_space.flat_dim
     if len(obs_dim.shape) == 3:
-        channels, obs_size = obs_dim[2], obs_dim[0:2]
+        channels, obs_size = obs_dim.shape[2], obs_dim.shape[0:2]
     else:
+        obs_dim = obs_dim.flat_dim
         channels, obs_size = None, obs_dim
 
     extractor, pooler = fetch_extractor_and_pooler(policy_net_config.slot_extractor, policy_net_config.slot_pooler,
                                                    channels = channels, obs_size = obs_size)
     module_obs_dim = pooler.outp_dim + policy_net_config.dim_option
-    
-    policy_module = GaussianMLPTwoHeadedModule(input_dim = module_obs_dim, output_dim = action_dim, 
+    if policy_net_config.distribution.name == 'TwoHeaded':
+        policy_module = GaussianMLPTwoHeadedModule(input_dim = module_obs_dim, output_dim = action_dim, 
                                                hidden_sizes = policy_net_config.hidden_sizes, 
                                                layer_normalization = policy_net_config.layer_normalization,
                                                hidden_nonlinearity = fetch_activation(policy_net_config.nonlinearity), 
@@ -183,6 +191,16 @@ def build_policy_net(env, policy_net_config):
                                                init_std = np.exp(policy_net_config.distribution.starting_logstd),
                                                normal_distribution_cls = fetch_dist_type(policy_net_config.distribution.type),
                                                output_w_init = functools.partial(xavier_normal, gain=1.))
+    elif policy_net_config.distribution.name == 'GlobalStd':
+        policy_module = GaussianMLPGlobalStdModule(input_dim = module_obs_dim, output_dim = action_dim, 
+                                               hidden_sizes = policy_net_config.hidden_sizes, 
+                                               layer_normalization = policy_net_config.layer_normalization,
+                                               hidden_nonlinearity = fetch_activation(policy_net_config.nonlinearity), 
+                                               max_std = np.exp(policy_net_config.distribution.max_logstd),
+                                               init_std = np.exp(policy_net_config.distribution.starting_logstd),
+                                               normal_distribution_cls = fetch_dist_type(policy_net_config.distribution.type),
+                                               output_w_init = functools.partial(xavier_normal, gain=1.))
+        
     policy_module = pipeline.SkillObjectPipeline('obs', 'options', 'obj_idxs', 
                                                  slot_extractor = extractor, slot_pooler = pooler, 
                                                  downstream_model = policy_module, downstream_input_keys = ['obs', 'options'])
@@ -190,10 +208,11 @@ def build_policy_net(env, policy_net_config):
 
 
 def build_trajectory_encoder(env, trajectory_net_config):
-    obs_dim = env.spec.observation_space.flat_dim
+    obs_dim = env.spec.observation_space
     if len(obs_dim.shape) == 3:
-        channels, obs_size = obs_dim[2], obs_dim[0:2]
+        channels, obs_size = obs_dim.shape[2], obs_dim.shape[0:2]
     else:
+        obs_dim = obs_dim.flat_dim
         channels, obs_size = None, obs_dim
 
     extractor, pooler = fetch_extractor_and_pooler(trajectory_net_config.slot_extractor, trajectory_net_config.slot_pooler,
@@ -223,10 +242,11 @@ def build_trajectory_encoder(env, trajectory_net_config):
 
 
 def build_q_net(env, q_net_config):
-    obs_dim, action_dim = env.spec.observation_space.flat_dim, env.spec.action_space.flat_dim
+    obs_dim, action_dim = env.spec.observation_space, env.spec.action_space.flat_dim
     if len(obs_dim.shape) == 3:
-        channels, obs_size = obs_dim[2], obs_dim[0:2]
+        channels, obs_size = obs_dim.shape[2], obs_dim.shape[0:2]
     else:
+        obs_dim = obs_dim.flat_dim
         channels, obs_size = None, obs_dim
 
     extractor, pooler = fetch_extractor_and_pooler(q_net_config.slot_extractor, q_net_config.slot_pooler,
@@ -247,6 +267,33 @@ def build_q_net(env, q_net_config):
                                      slot_extractor = extractor, slot_pooler = pooler, 
                                      downstream_model = q, downstream_input_keys = ['obs', 'options', 'actions'])
     return q
+
+def build_v_net(env, v_net_config):
+    obs_dim = env.spec.observation_space
+    if len(obs_dim.shape) == 3:
+        channels, obs_size = obs_dim.shape[2], obs_dim.shape[0:2]
+    else:
+        obs_dim = obs_dim.flat_dim
+        channels, obs_size = None, obs_dim
+
+    extractor, pooler = fetch_extractor_and_pooler(v_net_config.slot_extractor, v_net_config.slot_pooler,
+                                                   channels = channels, obs_size = obs_size)
+    module_obs_dim = pooler.outp_dim + v_net_config.dim_option
+
+    v = MLPModule(input_dim = module_obs_dim, output_dim = 1,
+                  hidden_sizes = v_net_config.hidden_sizes,
+                  hidden_nonlinearity = fetch_activation(v_net_config.nonlinearity),
+                  hidden_w_init = torch.nn.init.xavier_normal_,
+                  hidden_b_init = torch.nn.init.zeros_,
+                  output_nonlinearity = None,
+                  output_w_init = torch.nn.init.xavier_normal_,
+                  output_b_init = torch.nn.init.zeros_,
+                  layer_normalization = v_net_config.layer_normalization)
+    
+    v = pipeline.SkillObjectPipeline('obs', 'options', 'obj_idxs', 
+                                     slot_extractor = extractor, slot_pooler = pooler, 
+                                     downstream_model = v, downstream_input_keys = ['obs', 'options'])
+    return v
     
 
 def build_dist_predictor(env, dual_dist_name, dual_dist_config):
@@ -256,7 +303,7 @@ def build_dist_predictor(env, dual_dist_name, dual_dist_config):
         return None
     
     elif dual_dist_name == 's2_from_s':
-        obs_dim = env.spec.observation_space.flat_dim
+        obs_dim = env.spec.observation_space
         dist_predictor = GaussianMLPIndependentStdModule(hidden_sizes = dual_dist_config.hidden_sizes, 
                                         std_hidden_sizes = dual_dist_config.hidden_sizes,
                                         hidden_nonlinearity = fetch_activation(dual_dist_config.nonlinearity),
@@ -325,23 +372,60 @@ def run():
             {'params': dist_predictor.parameters(), 'lr': config.skill.dual_dist.lr},
         ])
         METRA_optimizer_keys.append('dist_predictor')
+    
+    rl_algo = None
 
-    pixel_keys = ['obs', 'next_obs'] if config.env.name in ['dmc_cheetah', 'dmc_quadruped', 'dmc_humanoid', 'pixel_gripper'] else []
-    replay_buffer = PathBuffer(capacity_in_transitions = int(config.replay_buffer.max_transitions), 
-                               pixel_keys = pixel_keys, discount = config.replay_buffer.discount)
+    pixel_keys = ['obs', 'next_obs'] if env.is_pixel else []
+    if config.rl_algo.name == 'SAC':
+        qf1, qf2 = build_q_net(env, q_net_config = config.rl_algo.critics),\
+            build_q_net(env, q_net_config = config.rl_algo.critics)
     
-    qf1, qf2 = build_q_net(env, q_net_config = config.rl_algo.critics),\
-        build_q_net(env, q_net_config = config.rl_algo.critics)
+        log_alpha = ParameterModule(torch.Tensor([np.log(config.rl_algo.alpha.value)]))
+        optimizers.update({
+            'qf': torch.optim.Adam([
+                {'params': list(qf1.parameters()) + list(qf2.parameters()), 'lr': config.rl_algo.critics.lr},
+            ]),
+            'log_alpha': torch.optim.Adam([
+                {'params': log_alpha.parameters(), 'lr': config.rl_algo.alpha.lr},
+            ])
+        })
+
+        rl_algo = SAC(qf1 = qf1, qf2 = qf2, log_alpha = log_alpha, tau = config.rl_algo.tau, 
+                      scale_reward = config.rl_algo.scale_reward, target_coef = config.rl_algo.target_coef,
+                      option_policy = option_policy, device = config.globals.device,
+                      optimizers = {key: optimizers[key] for key in ['option_policy', 'qf', 'log_alpha']},
+                      discount = config.rl_algo.discount, env_spec = env)
+        
+        replay_buffer = PathBuffer(capacity_in_transitions = int(config.replay_buffer.common.max_transitions), 
+                                   batch_size = config.replay_buffer.common.batch_size, pixel_keys = pixel_keys, 
+                                   discount = config.replay_buffer.common.discount, gae_lambda = None,
+                                   on_policy = rl_algo.on_policy)
+        rollout_buffer = None
     
-    log_alpha = ParameterModule(torch.Tensor([np.log(config.rl_algo.alpha.value)]))
-    optimizers.update({
-        'qf': torch.optim.Adam([
-            {'params': list(qf1.parameters()) + list(qf2.parameters()), 'lr': config.rl_algo.critics.lr},
-        ]),
-        'log_alpha': torch.optim.Adam([
-            {'params': log_alpha.parameters(), 'lr': config.rl_algo.alpha.lr},
-        ])
-    })
+    elif config.rl_algo.name == 'PPO':
+        vf = build_v_net(env, v_net_config = config.rl_algo.value)
+        optimizers.update({
+            'vf': torch.optim.Adam([
+                {'params': list(vf.parameters()), 'lr': config.rl_algo.value.lr}
+            ])
+        })
+        rl_algo = PPO(vf, clip_coef = config.rl_algo.clip_coef, clip_vloss = config.rl_algo.clip_vloss, 
+                      ent_coef = config.rl_algo.ent_coef, vf_coef = config.rl_algo.vf_coef, 
+                      normalize_advantage = config.rl_algo.norm_adv, max_grad_norm = config.rl_algo.max_grad_norm, 
+                      target_kl = config.rl_algo.target_kl, option_policy = option_policy, 
+                      optimizers = {key: optimizers[key] for key in ['option_policy', 'vf']},
+                      device = config.globals.device)
+        
+        replay_buffer = PathBuffer(capacity_in_transitions = int(config.replay_buffer.skill.max_transitions), 
+                                   batch_size = config.replay_buffer.skill.batch_size, pixel_keys = pixel_keys, 
+                                   discount = config.replay_buffer.discount, gae_lambda = config.replay_buffer.gae_lambda,
+                                   on_policy = rl_algo.on_policy)
+        
+        rollout_buffer = PathBuffer(capacity_in_transitions = int(config.replay_buffer.policy.max_transitions), 
+                                    batch_size = config.replay_buffer.policy.batch_size, pixel_keys = pixel_keys, 
+                                    discount = config.replay_buffer.discount, gae_lambda = config.replay_buffer.gae_lambda,
+                                    on_policy = rl_algo.on_policy)
+        
 
     metra = METRA(traj_encoder = traj_encoder, dual_lam = dual_lam, dist_predictor = dist_predictor,
                   optimizers = {key: optimizers[key] for key in METRA_optimizer_keys}, 
@@ -349,16 +433,12 @@ def run():
                   unit_length = config.skill.unit_length, device = config.globals.device, 
                   dual_reg = config.skill.dual_reg, dual_slack = config.skill.dual_slack, 
                   dual_dist = config.skill.dual_dist_name)
-    
-    sac_algo = SAC(qf1 = qf1, qf2 = qf2, log_alpha = log_alpha, tau = config.rl_algo.tau, 
-                   scale_reward = config.rl_algo.scale_reward, target_coef = config.rl_algo.target_coef,
-                   option_policy = option_policy, device = config.globals.device,
-                   optimizers = {key: optimizers[key] for key in ['option_policy', 'qf', 'log_alpha']},
-                   discount = config.rl_algo.discount, env_spec = env)
+        
     env.close()
     
-    train_cycle(config.trainer_args, agent = sac_algo, skill_model = metra, replay_buffer = replay_buffer,
-                make_env_fn = make_seeded_env, seed = config.globals.seed, comet_logger = exp)
+    train_cycle(config.trainer_args, agent = rl_algo, skill_model = metra, replay_buffer = replay_buffer,
+                rollout_buffer = rollout_buffer, make_env_fn = make_seeded_env, 
+                seed = config.globals.seed, comet_logger = exp)
 
 
 def update_traj_with_info(target_dict, infos, info_dict_name):
@@ -394,8 +474,8 @@ def update_traj_with_array(target_dict, array, array_key):
         target_dict[array_key] = np.append(target_dict[array_key], array, axis=0)
 
 
-def collect_trajectories(env, agent, trajectories_length, n_objects = None, trajectories_qty = None, skill_model = None,
-                         options_and_obj_idxs = None):
+def collect_trajectories(env, agent, trajectories_length, n_objects = None, trajectories_qty = None, 
+                         skill_model = None, options_and_obj_idxs = None, mode = 'train'):
     if options_and_obj_idxs is None:
         options_and_obj_idxs = skill_model._get_train_trajectories_kwargs(trajectories_qty, n_objects)
     else:
@@ -423,27 +503,46 @@ def collect_trajectories(env, agent, trajectories_length, n_objects = None, traj
             next_obs = np.transpose(next_obs, [0, 3, 1, 2]) if len(next_obs.shape) == 4 else next_obs
             if (i == trajectories_length - 1):
                 dones = np.full((env_qty,), fill_value = True)
-            for i, done in enumerate(prev_dones):
+            for j, done in enumerate(prev_dones):
                 if not done:
-                    update_traj_with_array(generated_trajectories[i + pseudoepisode * env_qty], prev_obs[i: i+1], 
+                    update_traj_with_array(generated_trajectories[j + pseudoepisode * env_qty], prev_obs[j: j+1], 
                                            'observations')
-                    update_traj_with_array(generated_trajectories[i + pseudoepisode * env_qty], next_obs[i: i+1], 
+                    update_traj_with_array(generated_trajectories[j + pseudoepisode * env_qty], next_obs[j: j+1], 
                                            'next_observations')
-                    update_traj_with_array(generated_trajectories[i + pseudoepisode * env_qty], action[i: i+1], 
+                    update_traj_with_array(generated_trajectories[j + pseudoepisode * env_qty], action[j: j+1], 
                                            'actions')
-                    update_traj_with_array(generated_trajectories[i + pseudoepisode * env_qty], rewards[i: i+1], 
+                    update_traj_with_array(generated_trajectories[j + pseudoepisode * env_qty], rewards[j: j+1], 
                                            'rewards')
-                    update_traj_with_info(generated_trajectories[i + pseudoepisode * env_qty], env_infos[i], 'env_infos')
-                    agent_info = deepcopy({key: action_info[key][i] for key in action_info.keys()})
-                    agent_info.update({'options': cur_options[i]})
-                    agent_info.update({'obj_idxs': cur_obj_idx[i]})
-                    update_traj_with_info(generated_trajectories[i + pseudoepisode * env_qty], agent_info, 'agent_infos')
-                    update_traj_with_array(generated_trajectories[i + pseudoepisode * env_qty], dones[i: i+1], 
+                    update_traj_with_array(generated_trajectories[j + pseudoepisode * env_qty], dones[j: j+1], 
                                            'dones')
+                    update_traj_with_info(generated_trajectories[j + pseudoepisode * env_qty], env_infos[j], 'env_infos')
+                    agent_info = {}
+                    agent_info.update({'options': cur_options[j], 'obj_idxs': cur_obj_idx[j]})
+                    if mode == 'train':
+                        agent_info.update({'log_probs': action_info['log_prob'][j]})
+                    update_traj_with_info(generated_trajectories[j + pseudoepisode * env_qty], agent_info, 'agent_infos')
             prev_obs = next_obs
             prev_dones = np.logical_or(prev_dones, dones)
     
     generated_trajectories = generated_trajectories[:trajectories_qty]
+    if agent.on_policy and mode == 'train':
+        prev_obs = torch.tensor([generated_trajectories[i]['observations'] for i in range(len(generated_trajectories))])
+        next_obs = torch.tensor([generated_trajectories[i]['next_observations'] for i in range(len(generated_trajectories))])
+        options = torch.tensor([generated_trajectories[i]['agent_infos']['options'] for i in range(len(generated_trajectories))])
+        obj_idxs = torch.tensor([generated_trajectories[i]['agent_infos']['obj_idxs'] for i in range(len(generated_trajectories))])
+        prev_obs = {'obs': prev_obs.reshape((-1,) + tuple(prev_obs.shape[2:])).to(agent.device), 
+                    'options': options.reshape((-1,) + tuple(options.shape[2:])).to(agent.device), 
+                    'obj_idxs': obj_idxs.reshape((-1,) + tuple(obj_idxs.shape[2:])).to(agent.device)}
+        next_obs = {'obs': next_obs.reshape((-1,) + tuple(next_obs.shape[2:])).to(agent.device), 
+                    'options': options.reshape((-1,) + tuple(options.shape[2:])).to(agent.device), 
+                    'obj_idxs': obj_idxs.reshape((-1,) + tuple(obj_idxs.shape[2:])).to(agent.device)}
+        values = agent.critic(prev_obs).detach().cpu().numpy().astype(np.float32).reshape((trajectories_qty, -1))
+        next_values = agent.critic(next_obs).detach().cpu().numpy().astype(np.float32).reshape((trajectories_qty, -1))
+        agent_info.update({'values': agent.critic(prev_obs).detach().cpu().numpy(),
+                           'next_values': agent.critic(next_obs).detach().cpu().numpy()})
+        for i in range(len(generated_trajectories)):
+            generated_trajectories[i]['agent_infos']['values'] = values[i]
+            generated_trajectories[i]['agent_infos']['next_values'] = next_values[i]
     return generated_trajectories
 
 def render_trajectories(env, agent, options, trajectories_length):
@@ -483,38 +582,69 @@ def prepare_batch(batch, device = 'cuda'):
         data[key] = torch.from_numpy(value).to(device)
     return data
 
-def train_cycle(trainer_config, agent, skill_model, replay_buffer, make_env_fn, seed, 
+def train_cycle(trainer_config, agent, skill_model, replay_buffer, rollout_buffer, make_env_fn, seed, 
                 comet_logger):
     n_objects = make_env_fn(seed = 0).n_obj
-    env = SyncVectorEnv([lambda: make_env_fn(seed = (seed + i)) for i in range(trainer_config.n_parallel)])#, 
-                         #context='spawn')
-    eval_env = SyncVectorEnv([lambda: make_env_fn(seed = (seed + i)) for i in range(trainer_config.n_parallel)])#, 
-                              #context='spawn')
+    env = SyncVectorEnv([lambda: make_env_fn(seed = (seed + i)) for i in range(trainer_config.n_parallel)]) #, context='spawn')
+    eval_env = SyncVectorEnv([lambda: make_env_fn(seed = (seed + i)) for i in range(trainer_config.n_parallel)]) #, context='spawn')
     
-    cur_step = 0
+    prev_cur_step, cur_step = 0, 0
     for i in range(trainer_config.n_epochs):
+        agent.eval()
         trajs = collect_trajectories(env = env, agent = agent, skill_model = skill_model, n_objects = n_objects,
                             trajectories_qty = trainer_config.traj_batch_size, 
                             trajectories_length = trainer_config.max_path_length)
         for traj in trajs:
             cur_step += len(traj['observations'])
         replay_buffer.update_replay_buffer(trajs)
-        if replay_buffer.n_transitions_stored < trainer_config.transitions_before_training:
+        if (rollout_buffer is None) and (replay_buffer.n_transitions_stored < trainer_config.transitions_before_training):
             continue
-        for _ in range(trainer_config.trans_optimization_epochs):
-            batch = replay_buffer.sample_transitions(batch_size = trainer_config.batch_size)
+
+        agent.train()
+        skill_optim_steps = trainer_config.skill_optimization_epochs if agent.on_policy \
+            else trainer_config.trans_optimization_epochs
+        
+        for _ in range(skill_optim_steps):
+            batch = replay_buffer.sample_transitions()
             batch = prepare_batch(batch)
             logs, modified_batch = skill_model.train_components(batch)
-            logs.update(agent.optimize_op(modified_batch))
-        if i % 50 == 7:
+            if not agent.on_policy:
+                logs.update(agent.optimize_op(modified_batch))
+        
+        if agent.on_policy:
+            paths = replay_buffer.pop_recent_paths()
+            for path in paths:
+                with torch.no_grad():
+                    torch_path = {'obs': torch.from_numpy(path['observations']).to(agent.device), 
+                                  'next_obs': torch.from_numpy(path['next_observations']).to(agent.device), 
+                                  'obj_idxs': torch.from_numpy(path['agent_infos']['obj_idxs']).to(agent.device), 
+                                  'options': torch.from_numpy(path['agent_infos']['options']).to(agent.device)}
+                    skill_model._update_rewards(torch_path)
+                    path['rewards'] = torch_path['rewards'].detach().cpu().numpy()
+                
+            rollout_buffer.update_replay_buffer(paths)
+            for i in range(trainer_config.skill_optimization_epochs * trainer_config.policy_optimization_mult):
+                batch = rollout_buffer.sample_transitions()
+                batch = prepare_batch(batch)
+                ppo_log = agent.optimize_op(batch)
+                if ppo_log is None:
+                    break
+                logs.update(ppo_log)
+                logs['last_iteration'] = i
+            rollout_buffer.clear()
+        
+        if (prev_cur_step // trainer_config.log_frequency) < (cur_step // trainer_config.log_frequency):
             comet_logger.log_metrics(logs, step = cur_step)
-        if i % 250 == 7:
+        
+        agent.eval()
+        if (prev_cur_step // trainer_config.eval_frequency) < (cur_step // trainer_config.eval_frequency):
             eval_metrics(eval_env, make_env_fn(seed = 0), agent, skill_model, num_random_trajectories = 48,
                             sample_processor = replay_buffer.preprocess_data, 
                             example_env_name = make_env_fn.keywords['env_name'],
                             example_env_kwargs = make_env_fn.keywords['env_kwargs'],
                             device = "cuda:0", comet_logger = comet_logger, step = cur_step)
-
+        
+        prev_cur_step = cur_step
 
 def sample_eval_options(num_random_trajectories, skill_model):
     if skill_model.discrete:
@@ -580,7 +710,7 @@ def render_ori_trajectories(options, colors, n_objects, eval_env, example_env, a
         for elem in options:
             eval_options.append({'options': elem['options'], 'obj_idxs': obj_i})
         random_trajectories.append(collect_trajectories(env = eval_env, agent = agent, trajectories_length = 200, 
-                                                        options_and_obj_idxs = eval_options))
+                                                        options_and_obj_idxs = eval_options, mode = 'eval'))
         example_env.render_trajectories(random_trajectories[-1], colors, None, ax[obj_i])
     fig.canvas.draw()
     skill_img = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
@@ -639,6 +769,7 @@ def eval_metrics(env, example_env, agent, skill_model, num_random_trajectories,
                     eval_color=eval_color, sample_processor = sample_processor, device = device)
     comet_logger.log_image(image_data = phi_img, name = "Phi plot", step = step)
 
+    """
     # Videos
     videos = []
     video_options = sample_video_options(skill_model)
@@ -647,13 +778,15 @@ def eval_metrics(env, example_env, agent, skill_model, num_random_trajectories,
         video_trajectories = render_trajectories(env = example_env, agent = agent, trajectories_length = 200, 
                                                  options = video_options)
         videos.append(video_trajectories)
-    
+    """
     agent.option_policy._force_use_mode_actions = False
+    """
     for i, video in enumerate(videos):
         path_to_video = record_video(video, skip_frames = 2)
         comet_logger.log_video(file = path_to_video, name = 'Skill videos №{}'.format(i), step = step)
     
-    comet_logger.log_metrics(example_env.calc_eval_metrics(option_trajectories[0], is_option_trajectories=True), step = step)
+    comet_logger.log_metrics(example_env.calc_eval_metrics(option_trajectories[0], is_option_trajectories=True), step = step)"
+    """
     example_env.close()
 
 if __name__ == '__main__':

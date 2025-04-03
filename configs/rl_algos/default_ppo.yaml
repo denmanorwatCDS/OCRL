@@ -42,11 +42,16 @@ skill:
     spectral_normalization: false
 
 rl_algo:
-  name: 'SAC'
-  tau: 5e-3
-  scale_reward: 1.
-  target_coef: 1.
+  name: 'PPO'
   discount: 0.99
+  gae_lambda: 0.95
+  norm_adv: true
+  clip_coef: 0.2
+  clip_vloss: true
+  ent_coef: 0.0
+  vf_coef: 0.5
+  max_grad_norm: 0.5
+  target_kl: 0.025
   device: ${globals.device}
   policy:
     slot_extractor:
@@ -60,10 +65,11 @@ rl_algo:
     layer_normalization: false
     nonlinearity: tanh
     distribution:
+      name: GlobalStd
       starting_logstd: 0.
       max_logstd: 2.
       type: TanhNormal
-  critics:
+  value:
     slot_extractor:
       name: null
     slot_pooler:
@@ -73,20 +79,28 @@ rl_algo:
     hidden_sizes: ${globals.mlp_arch}
     nonlinearity: relu
     layer_normalization: false
-  alpha:
-    value: 1e-2
-    lr: 1e-4
 
 replay_buffer:
-  min_transitions: 10000
-  max_transitions: 300000
+  gae_lambda: ${rl_algo.gae_lambda}
   discount: ${rl_algo.discount}
+  common: null
+  skill:
+    min_transitions: 25000
+    max_transitions: 2000000
+    batch_size: 2048
+  policy:
+    min_transitions: null
+    max_transitions: 25000
+    batch_size: 2048
 
 trainer_args:
   n_parallel: 4
-  traj_batch_size: 8
+  traj_batch_size: 40
   n_epochs: 100_000
-  batch_size: 256
-  trans_optimization_epochs: 200
+  trans_optimization_epochs: null
+  skill_optimization_epochs: 50
+  policy_optimization_mult: 1
   max_path_length: 200
-  transitions_before_training: 10_000
+  transitions_before_training: null
+  log_frequency: 50_000
+  eval_frequency: 200_000

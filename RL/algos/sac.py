@@ -3,12 +3,6 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 
-from optimizers.optimizer_wrapper import OptimizerGroupWrapper
-
-def get_torch_concat_obs(obs, option, dim = 1):
-    concat_obs = torch.cat([obs] + [option], dim = dim)
-    return concat_obs
-
 class SAC:
     def __init__(
         self,
@@ -53,8 +47,15 @@ class SAC:
             'option_policy': self.option_policy,
         }
     
-    def _get_concat_obs(self, obs, option):
-        return get_torch_concat_obs(obs, option)
+    @property
+    def on_policy(self):
+        return False
+    
+    def eval(self):
+        self.option_policy.eval(), self.qf1.eval(), self.qf2.eval(), self.target_qf1.eval(), self.target_qf2.eval()
+
+    def train(self):
+        self.option_policy.train(), self.qf1.train(), self.qf2.train(), self.target_qf1.train(), self.target_qf2.train()
 
     def optimize_op(self, modified_batch):
         logs = self._update_loss_qf(

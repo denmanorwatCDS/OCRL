@@ -22,6 +22,15 @@ rl_algo:
       nhead: ${rl_algo.transformer_cfg.nhead}
       dim_feedforward: ${rl_algo.transformer_cfg.dim_feedforward}
       num_layers: ${rl_algo.transformer_cfg.num_layers}
+  
+  value:
+    slot_extractor:
+      name: dummy
+    slot_pooler:
+      name: ${rl_algo.transformer_cfg.name}
+      nhead: ${rl_algo.transformer_cfg.nhead}
+      dim_feedforward: ${rl_algo.transformer_cfg.dim_feedforward}
+      num_layers: ${rl_algo.transformer_cfg.num_layers}
 
 skill:
   trajectory_encoder:

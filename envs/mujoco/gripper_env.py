@@ -428,6 +428,10 @@ class MultipleFetchPickAndPlaceEnv(MujocoTrait, utils.EzPickle):
     @property
     def decoupled(self):
         return 'decoupled' in self.obs_type
+    
+    @property
+    def is_pixel(self):
+        return self.obs_type == 'pixels'
 
     def _remove_pressure(self, pos_ctrl):
         # Adapted from: https://gist.github.com/machinaut/209c44e8c55245c0d0f0094693053158

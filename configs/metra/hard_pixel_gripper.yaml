@@ -12,12 +12,12 @@ env:
     obs_type: 'pixels'
 
 trainer_args:
-  n_parallel: 4
-  traj_batch_size: 8
   trans_optimization_epochs: 200
+  
 
 replay_buffer:
-  max_transitions: 300000
+  common:
+    max_transitions: 300000
 
 skill:
   name: "metra"

@@ -1,14 +1,10 @@
-globals:
-  seed: 42
-
 env:
-  name: "decoupled_gripper"
+  name: "maze"
   normalizer_type: "off"
-  env_kwargs: 
-    object_qty: 1
-    object_names: ['box']
+  env_kwargs: null
 
 trainer_args:
+  traj_batch_size: 8
   trans_optimization_epochs: 50
 
 replay_buffer:

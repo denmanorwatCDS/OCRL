@@ -233,6 +233,10 @@ class AntEnv(MujocoTrait, mujoco_env.MujocoEnv, utils.EzPickle):
     @property
     def body_comvel_indices(self):
         return self._body_comvel_indices
+    
+    @property
+    def is_pixel(self):
+        return False
 
     def calc_eval_metrics(self, trajectories, is_option_trajectories):
         coord_dims = [0, 1]

@@ -1,0 +1,103 @@
+globals:
+  device: 'cuda'
+  sample_cpu: true
+  seed: 42
+  n_thread: 1
+  n_parallel: 8
+  mlp_arch: [1024, 1024]
+
+env:
+  name: maze
+  max_path_length: 200
+  frame_stack: null
+  normalizer_type: "off"
+  env_kwargs: null
+
+skill:
+  name: 'METRA'
+  dim_option: 2
+  discrete: false
+  unit_length: true
+  device: ${globals.device}
+  dual_reg: true
+  dual_slack: 1e-3
+  dual_dist_name: 'one'
+  dual_dist: null
+  dual_lam: 30
+  dual_lr: 1e-4
+  trajectory_encoder:
+    slot_extractor:
+      name: null
+    slot_pooler:
+      name: null
+    dim_option: ${skill.dim_option}
+    hidden_sizes: ${globals.mlp_arch}
+    lr: 1e-4
+    nonlinearity: relu
+    init_std: 1
+    min_std: 1e-6
+    max_std: null
+    std_parameterization: 'exp'
+    bias: True
+    spectral_normalization: false
+
+rl_algo:
+  name: 'SAC'
+  tau: 5e-3
+  scale_reward: 1.
+  target_coef: 1.
+  discount: 0.99
+  gae_lambda: null
+  device: ${globals.device}
+  policy:
+    slot_extractor:
+      name: null
+    slot_pooler:
+      name: null
+    name: 'option_policy'
+    lr: 1e-4
+    dim_option: ${skill.dim_option}
+    hidden_sizes: ${globals.mlp_arch}
+    layer_normalization: false
+    nonlinearity: tanh
+    distribution:
+      name: TwoHeaded
+      starting_logstd: 0.
+      max_logstd: 2.
+      type: TanhNormal
+  critics:
+    slot_extractor:
+      name: null
+    slot_pooler:
+      name: null
+    lr: 1e-4
+    dim_option: ${skill.dim_option}
+    hidden_sizes: ${globals.mlp_arch}
+    nonlinearity: relu
+    layer_normalization: false
+  alpha:
+    value: 1e-2
+    lr: 1e-4
+
+replay_buffer:
+  gae_lambda: ${rl_algo.gae_lambda}
+  discount: ${rl_algo.discount}
+  common:
+    min_transitions: 10000
+    max_transitions: 300000
+    batch_size: 256
+    discount: ${rl_algo.discount}
+  skill: null
+  policy: null
+
+trainer_args:
+  n_parallel: 4
+  traj_batch_size: 8
+  n_epochs: 100_000
+  trans_optimization_epochs: 200
+  skill_optimization_epochs: null
+  policy_optimization_mult: null
+  max_path_length: 200
+  transitions_before_training: 10_000
+  log_frequency: 50_000
+  eval_frequency: 250_000
