@@ -6,6 +6,7 @@ from moviepy import editor as mpy
 import os
 from datetime import datetime
 import pathlib
+import torch
 
 def get_2d_colors(points, min_point, max_point):
     points = np.array(points)
@@ -166,3 +167,28 @@ def record_video(trajectories, n_cols=None, skip_frames=1):
     renders = np.array(renders)
     renders = np.transpose(renders, axes = [0, 1, 4, 2, 3])
     return save_video(renders, n_cols=n_cols)
+
+class StatisticsCalculator():
+    def __init__(self, name):
+        self.name = name
+        self.dict_buffer = {}
+    
+    def save_iter(self, logs_dict):
+        for key in logs_dict:
+            if key not in self.dict_buffer:
+                self.dict_buffer[key] = []
+            if isinstance(logs_dict[key], (float, int)):
+                self.dict_buffer[key].append(logs_dict[key])
+            else:    
+                self.dict_buffer[key].append(logs_dict[key].item())
+    
+    def pop_statistics(self):
+        outp = {}
+        for key in self.dict_buffer:
+            q1 = np.quantile(self.dict_buffer[key], q = 0.25)
+            q2 = np.quantile(self.dict_buffer[key], q = 0.5)
+            q3 = np.quantile(self.dict_buffer[key], q = 0.75)
+            outp[self.name + '/' + key] = q2
+
+        self.dict_buffer = {}
+        return outp

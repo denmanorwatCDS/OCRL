@@ -79,7 +79,7 @@ class PPO(nn.Module):
         actions, old_logprobs = batch['actions'], batch['log_probs']
         opt_input = {'obs': obs}
         opt_input.update({'options': option, 'obj_idxs': obj_idx})
-        new_logprobs, entropy = self.option_policy.get_logprob_and_entropy(opt_input, actions)
+        new_logprobs, entropy, info = self.option_policy.get_logprob_and_entropy(opt_input, actions)
         log_ratio = new_logprobs - old_logprobs
         ratio = log_ratio.exp()
 
@@ -87,7 +87,7 @@ class PPO(nn.Module):
             old_approx_kl = -(log_ratio).mean()
             approx_kl = ((ratio - 1) - log_ratio).mean()
             clipfracs = ((ratio - 1.0).abs() > self.clip_coef).float().mean().item()
-            if approx_kl > self.target_kl:
+            if self.target_kl is not None and approx_kl > self.target_kl:
                 return None
         
         advantages = batch['advantages']
@@ -105,7 +105,8 @@ class PPO(nn.Module):
                 'clip_fractions': clipfracs,
                 'old_approx_kl': old_approx_kl.detach().cpu(),
                 'approx_kl': approx_kl.detach().cpu(),
-                'actor_loss': actor_loss}
+                'actor_loss': actor_loss,
+                'mean_policy_std': torch.mean(info['normal_std'])}
     
     def update_loss_vf(self, batch):
         # TODO uncomment lines

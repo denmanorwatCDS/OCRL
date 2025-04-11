@@ -115,7 +115,7 @@ class GaussianMLPBaseModule(nn.Module):
         self._layer_normalization = layer_normalization
         self._norm_dist_class = normal_distribution_cls
 
-        if self._std_parameterization not in ('exp', 'softplus', 'softplus_real'):
+        if self._std_parameterization not in ('exp', 'softplus'):
             raise NotImplementedError
 
         init_std_param = torch.Tensor([init_std]).log()
@@ -127,10 +127,16 @@ class GaussianMLPBaseModule(nn.Module):
 
         self._min_std_param = self._max_std_param = None
         if min_std is not None:
-            self._min_std_param = torch.Tensor([min_std]).log()
+            if self._std_parameterization == 'exp':
+                self._min_std_param = torch.Tensor([min_std]).log()
+            elif self._std_parameterization == 'softplus':
+                self._min_std_param = torch.Tensor([min_std]).exp().add(1.).log()
             self.register_buffer('min_std_param', self._min_std_param)
         if max_std is not None:
-            self._max_std_param = torch.Tensor([max_std]).log()
+            if self._std_parameterization == 'exp':
+                self._max_std_param = torch.Tensor([max_std]).log()
+            elif self._std_parameterization == 'softplus':
+                self._max_std_param = torch.Tensor([max_std]).exp().add(1.).log()
             self.register_buffer('max_std_param', self._max_std_param)
 
     def to(self, *args, **kwargs):
@@ -176,7 +182,7 @@ class GaussianMLPBaseModule(nn.Module):
         """
         mean, log_std_uncentered = self._get_mean_and_log_std(inp)
 
-        if self._std_parameterization not in ['softplus_real']:
+        if self._std_parameterization not in ['softplus']:
             if self._min_std_param or self._max_std_param:
                 log_std_uncentered = log_std_uncentered.clamp(
                     min=(None if self._min_std_param is None else
@@ -187,8 +193,6 @@ class GaussianMLPBaseModule(nn.Module):
         if self._std_parameterization == 'exp':
             std = log_std_uncentered.exp()
         elif self._std_parameterization == 'softplus':
-            std = log_std_uncentered.exp().exp().add(1.).log()
-        elif self._std_parameterization == 'softplus_real':
             std = log_std_uncentered.exp().add(1.).log()
         else:
             assert False
@@ -348,10 +352,10 @@ class GaussianMLPIndependentStdModule(GaussianMLPBaseModule):
             torch.Tensor: The bias tensor itself.
 
         """
-        if self._std_parameterization not in ['softplus_real']:
+        if self._std_parameterization not in ['softplus']:
             return nn.init.constant_(b, self._init_std.item())
         else:
-            return nn.init.constant_(b, self._init_std.exp().exp().add(-1.0).log().item())
+            return nn.init.constant_(b, self._init_std.exp().add(-1.0).log().item())
 
     def _get_mean_and_log_std(self, inp):
         """Get mean and std of Gaussian distribution given inputs.
@@ -481,17 +485,18 @@ class GaussianMLPTwoHeadedModule(GaussianMLPBaseModule):
     def forward_mode(self, inp):
         mean, log_std_uncentered = self._get_mean_and_log_std(inp)
 
-        if self._min_std_param or self._max_std_param:
-            log_std_uncentered = log_std_uncentered.clamp(
-                min=(None if self._min_std_param is None else
-                     self._min_std_param.item()),
-                max=(None if self._max_std_param is None else
-                     self._max_std_param.item()))
+        if self._std_parameterization not in ['softplus']:
+            if self._min_std_param or self._max_std_param:
+                log_std_uncentered = log_std_uncentered.clamp(
+                    min=(None if self._min_std_param is None else
+                         self._min_std_param.item()),
+                    max=(None if self._max_std_param is None else
+                         self._max_std_param.item()))
 
         if self._std_parameterization == 'exp':
             std = log_std_uncentered.exp()
         else:
-            std = log_std_uncentered.exp().exp().add(1.).log()
+            std = log_std_uncentered.exp().add(1.).log()
 
         dist = self._norm_dist_class(mean, std)
         # This control flow is needed because if a TanhNormal distribution is
@@ -570,17 +575,18 @@ class GaussianMLPGlobalStdModule(GaussianMLPBaseModule):
     def forward_mode(self, inp):
         mean, log_std_uncentered = self._get_mean_and_log_std(inp)
 
-        if self._min_std_param or self._max_std_param:
-            log_std_uncentered = log_std_uncentered.clamp(
-                min=(None if self._min_std_param is None else
-                     self._min_std_param.item()),
-                max=(None if self._max_std_param is None else
-                     self._max_std_param.item()))
+        if self._std_parameterization not in ['softplus']:
+            if self._min_std_param or self._max_std_param:
+                log_std_uncentered = log_std_uncentered.clamp(
+                    min=(None if self._min_std_param is None else
+                         self._min_std_param.item()),
+                    max=(None if self._max_std_param is None else
+                         self._max_std_param.item()))
 
         if self._std_parameterization == 'exp':
             std = log_std_uncentered.exp()
         else:
-            std = log_std_uncentered.exp().exp().add(1.).log()
+            std = log_std_uncentered.exp().add(1.).log()
 
         dist = self._norm_dist_class(mean, std)
         # This control flow is needed because if a TanhNormal distribution is

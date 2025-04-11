@@ -64,6 +64,7 @@ rl_algo:
       name: TwoHeaded
       starting_logstd: 0.
       max_logstd: 2.
+      std_parameterization: exp
       type: TanhNormal
   critics:
     slot_extractor:
@@ -93,6 +94,7 @@ replay_buffer:
 trainer_args:
   n_parallel: 4
   traj_batch_size: 8
+  skills_per_trajectory: 1
   n_epochs: 100_000
   trans_optimization_epochs: 200
   skill_optimization_epochs: null

@@ -22,7 +22,7 @@ from RL.algos.ppo import PPO
 from networks.parameter import ParameterModule
 from gym.vector import AsyncVectorEnv, SyncVectorEnv
 from copy import deepcopy
-from eval_utils.eval_utils import get_option_colors, draw_2d_gaussians, record_video
+from eval_utils.eval_utils import get_option_colors, draw_2d_gaussians, StatisticsCalculator
 import matplotlib.pyplot as plt
 import matplotlib
 
@@ -187,10 +187,13 @@ def build_policy_net(env, policy_net_config):
                                                hidden_sizes = policy_net_config.hidden_sizes, 
                                                layer_normalization = policy_net_config.layer_normalization,
                                                hidden_nonlinearity = fetch_activation(policy_net_config.nonlinearity), 
-                                               max_std = np.exp(policy_net_config.distribution.max_logstd),
+                                               max_std = np.exp(policy_net_config.distribution.max_logstd) \
+                                               if policy_net_config.distribution.max_logstd is not None else None,
                                                init_std = np.exp(policy_net_config.distribution.starting_logstd),
+                                               std_parameterization = policy_net_config.distribution.std_parameterization,
                                                normal_distribution_cls = fetch_dist_type(policy_net_config.distribution.type),
                                                output_w_init = functools.partial(xavier_normal, gain=1.))
+        
     elif policy_net_config.distribution.name == 'GlobalStd':
         policy_module = GaussianMLPGlobalStdModule(input_dim = module_obs_dim, output_dim = action_dim, 
                                                hidden_sizes = policy_net_config.hidden_sizes, 
@@ -198,6 +201,7 @@ def build_policy_net(env, policy_net_config):
                                                hidden_nonlinearity = fetch_activation(policy_net_config.nonlinearity), 
                                                max_std = np.exp(policy_net_config.distribution.max_logstd),
                                                init_std = np.exp(policy_net_config.distribution.starting_logstd),
+                                               std_parameterization = policy_net_config.std_parameterization,
                                                normal_distribution_cls = fetch_dist_type(policy_net_config.distribution.type),
                                                output_w_init = functools.partial(xavier_normal, gain=1.))
         
@@ -474,14 +478,19 @@ def update_traj_with_array(target_dict, array, array_key):
         target_dict[array_key] = np.append(target_dict[array_key], array, axis=0)
 
 
-def collect_trajectories(env, agent, trajectories_length, n_objects = None, trajectories_qty = None, 
+def collect_trajectories(env, agent, trajectories_length, skills_per_traj = None, n_objects = None, trajectories_qty = None, 
                          skill_model = None, options_and_obj_idxs = None, mode = 'train'):
     if options_and_obj_idxs is None:
-        options_and_obj_idxs = skill_model._get_train_trajectories_kwargs(trajectories_qty, n_objects)
+        options_and_obj_idxs = skill_model._get_train_trajectories_kwargs(batch_size = trajectories_qty, 
+                                                                          traj_len = trajectories_length,
+                                                                          skills_per_traj = skills_per_traj, 
+                                                                          n_objects = n_objects)
     else:
-        assert (trajectories_qty is None) and (skill_model is None), """ It is expected, that when using options, 
-        there are one trajectory per each option, and there is no need to sample new options """
+        assert (trajectories_qty is None) and (skill_model is None) and (n_objects is None) and (skills_per_traj is None),\
+        """ It is expected, that when using options, there are one trajectory per each option, 
+        and there is no need to sample new options """
         trajectories_qty = len(options_and_obj_idxs)
+    options_and_obj_idxs = np.array(options_and_obj_idxs)
     
     env_qty = len(env.env_fns)
     if isinstance(env, (AsyncVectorEnv, SyncVectorEnv)):
@@ -491,12 +500,13 @@ def collect_trajectories(env, agent, trajectories_length, n_objects = None, traj
     
     generated_trajectories = [{} for i in range(trajectories_qty)]
     for pseudoepisode in range(pseudoepisodes):
-        cur_options = np.array([options_and_obj_idxs[pseudoepisode * env_qty + i]['options'] for i in range(env_qty)])
-        cur_obj_idx = np.array([options_and_obj_idxs[pseudoepisode * env_qty + i]['obj_idxs'] for i in range(env_qty)])
         prev_obs = env.reset()
         prev_obs = np.transpose(prev_obs, [0, 3, 1, 2]) if len(prev_obs.shape) == 4 else prev_obs
         prev_dones = np.full((env_qty,), fill_value=False)
         for i in range(trajectories_length):
+            opt_and_obj = options_and_obj_idxs[pseudoepisode * env_qty: (pseudoepisode + 1) * env_qty, i]
+            cur_options = np.stack([opt_and_obj[i]['options'] for i in range(env_qty)], axis=0)
+            cur_obj_idx = np.stack([opt_and_obj[i]['obj_idxs'] for i in range(env_qty)], axis=0)
             obs_and_option = {'obs': prev_obs, 'options': cur_options, 'obj_idxs': cur_obj_idx}
             action, action_info = agent.policy['option_policy'].get_actions(obs_and_option)
             next_obs, rewards, dones, env_infos = env.step(action)
@@ -585,56 +595,67 @@ def prepare_batch(batch, device = 'cuda'):
 def train_cycle(trainer_config, agent, skill_model, replay_buffer, rollout_buffer, make_env_fn, seed, 
                 comet_logger):
     n_objects = make_env_fn(seed = 0).n_obj
-    env = SyncVectorEnv([lambda: make_env_fn(seed = (seed + i)) for i in range(trainer_config.n_parallel)]) #, context='spawn')
-    eval_env = SyncVectorEnv([lambda: make_env_fn(seed = (seed + i)) for i in range(trainer_config.n_parallel)]) #, context='spawn')
+    env = AsyncVectorEnv([lambda: make_env_fn(seed = (seed + i)) for i in range(trainer_config.n_parallel)], context='spawn')
+    eval_env = AsyncVectorEnv([lambda: make_env_fn(seed = (seed + i)) for i in range(trainer_config.n_parallel)], context='spawn')
     
     prev_cur_step, cur_step = 0, 0
     for i in range(trainer_config.n_epochs):
         agent.eval()
-        trajs = collect_trajectories(env = env, agent = agent, skill_model = skill_model, n_objects = n_objects,
-                            trajectories_qty = trainer_config.traj_batch_size, 
-                            trajectories_length = trainer_config.max_path_length)
+        trajs = collect_trajectories(env = env, agent = agent, skill_model = skill_model, 
+                                     skills_per_traj = trainer_config.skills_per_trajectory, n_objects = n_objects,
+                                     trajectories_qty = trainer_config.traj_batch_size, 
+                                     trajectories_length = trainer_config.max_path_length)
         for traj in trajs:
             cur_step += len(traj['observations'])
         replay_buffer.update_replay_buffer(trajs)
-        if (rollout_buffer is None) and (replay_buffer.n_transitions_stored < trainer_config.transitions_before_training):
+        if (replay_buffer.n_transitions_stored < trainer_config.transitions_before_training):
+            replay_buffer.delete_recent_paths()
             continue
 
         agent.train()
         skill_optim_steps = trainer_config.skill_optimization_epochs if agent.on_policy \
             else trainer_config.trans_optimization_epochs
         
-        for _ in range(skill_optim_steps):
+        skill_stats = StatisticsCalculator('skill')
+        policy_stats = StatisticsCalculator('policy')
+
+        for i in range(skill_optim_steps):
             batch = replay_buffer.sample_transitions()
             batch = prepare_batch(batch)
             logs, modified_batch = skill_model.train_components(batch)
+            skill_stats.save_iter(logs)
             if not agent.on_policy:
-                logs.update(agent.optimize_op(modified_batch))
-        
-        if agent.on_policy:
-            paths = replay_buffer.pop_recent_paths()
-            for path in paths:
-                with torch.no_grad():
-                    torch_path = {'obs': torch.from_numpy(path['observations']).to(agent.device), 
-                                  'next_obs': torch.from_numpy(path['next_observations']).to(agent.device), 
-                                  'obj_idxs': torch.from_numpy(path['agent_infos']['obj_idxs']).to(agent.device), 
-                                  'options': torch.from_numpy(path['agent_infos']['options']).to(agent.device)}
-                    skill_model._update_rewards(torch_path)
-                    path['rewards'] = torch_path['rewards'].detach().cpu().numpy()
+                logs = agent.optimize_op(modified_batch)
+                policy_stats.save_iter(logs)
+            else:
+                paths = replay_buffer.get_recent_paths()
+                for path in paths:
+                    with torch.no_grad():
+                        torch_path = {'obs': torch.from_numpy(path['observations']).to(agent.device), 
+                                      'next_obs': torch.from_numpy(path['next_observations']).to(agent.device), 
+                                      'obj_idxs': torch.from_numpy(path['agent_infos']['obj_idxs']).to(agent.device), 
+                                      'options': torch.from_numpy(path['agent_infos']['options']).to(agent.device)}
+                        skill_model._update_rewards(torch_path)
+                        path['rewards'] = torch_path['rewards'].detach().cpu().numpy()
+                rollout_buffer.update_replay_buffer(paths)
+                for j in range(trainer_config.policy_optimization_mult):
+                    batch = rollout_buffer.sample_transitions()
+                    batch = prepare_batch(batch)
+                    ppo_log = agent.optimize_op(batch)
+                    if ppo_log is None:
+                        break
+                    policy_stats.save_iter(ppo_log)
                 
-            rollout_buffer.update_replay_buffer(paths)
-            for i in range(trainer_config.skill_optimization_epochs * trainer_config.policy_optimization_mult):
-                batch = rollout_buffer.sample_transitions()
-                batch = prepare_batch(batch)
-                ppo_log = agent.optimize_op(batch)
+                rollout_buffer.clear()
                 if ppo_log is None:
                     break
-                logs.update(ppo_log)
-                logs['last_iteration'] = i
-            rollout_buffer.clear()
+        replay_buffer.delete_recent_paths()
         
         if (prev_cur_step // trainer_config.log_frequency) < (cur_step // trainer_config.log_frequency):
-            comet_logger.log_metrics(logs, step = cur_step)
+            comet_logger.log_metrics(skill_stats.pop_statistics(), step = cur_step)
+            comet_logger.log_metrics({**policy_stats.pop_statistics(), 
+                                      'last_iteration': i * trainer_config.policy_optimization_mult + j}, 
+                                      step = cur_step)
         
         agent.eval()
         if (prev_cur_step // trainer_config.eval_frequency) < (cur_step // trainer_config.eval_frequency):
@@ -708,8 +729,11 @@ def render_ori_trajectories(options, colors, n_objects, eval_env, example_env, a
     eval_options, random_trajectories = [], []
     for obj_i in range(n_objects):
         for elem in options:
-            eval_options.append({'options': elem['options'], 'obj_idxs': obj_i})
-        random_trajectories.append(collect_trajectories(env = eval_env, agent = agent, trajectories_length = 200, 
+            eval_options.append([])
+            for step in range(trajectories_length):
+                eval_options[-1].append({'options': elem['options'], 'obj_idxs': obj_i})
+            
+        random_trajectories.append(collect_trajectories(env = eval_env, agent = agent, trajectories_length = trajectories_length, 
                                                         options_and_obj_idxs = eval_options, mode = 'eval'))
         example_env.render_trajectories(random_trajectories[-1], colors, None, ax[obj_i])
     fig.canvas.draw()

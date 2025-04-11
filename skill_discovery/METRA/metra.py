@@ -52,21 +52,24 @@ class METRA():
 
     def _get_concat_obs(self, obs, option):
         return get_torch_concat_obs(obs, option)
-    
-    def _generate_option_extras(self, options, objects):
-        return [{'options': opt, 'obj_idxs': obj} for opt, obj in zip(options, objects)]
 
-    def _get_train_trajectories_kwargs(self, batch_size, n_objects):
+    def _get_train_trajectories_kwargs(self, batch_size, traj_len, skills_per_traj, n_objects):
+        assert traj_len % skills_per_traj == 0, 'Maximal length of trajectory must be divisible by skills per trajectory'
         if self.discrete:
-            extras = self._generate_option_extras(np.eye(self.dim_option)[np.random.randint(0, self.dim_option, batch_size)],
-                                                  np.random.randint(low = 0, high = n_objects, size = batch_size))
+            options = np.eye(self.dim_option)[np.random.randint(0, self.dim_option, size = (batch_size, skills_per_traj))]
         else:
-            random_options = np.random.randn(batch_size, self.dim_option).astype(np.float32)
+            options = np.random.randn(batch_size, skills_per_traj, self.dim_option).astype(np.float32)
             if self.unit_length:
-                random_options /= np.linalg.norm(random_options, axis=-1, keepdims=True)
-            extras = self._generate_option_extras(random_options,
-                                                  np.random.randint(low = 0, high = n_objects, size = batch_size))
-
+                options /= np.linalg.norm(options, axis=-1, keepdims=True)
+        options = np.repeat(options, traj_len // skills_per_traj, axis=1)
+        obj_idxs = np.random.randint(low = 0, high = n_objects, size = (batch_size, 1))
+        obj_idxs = np.repeat(obj_idxs, traj_len, axis=1)
+        
+        extras = []
+        for i in range(batch_size):
+            extras.append([])
+            for traj_idx in range(traj_len):
+                extras[-1].append({'options': options[i, traj_idx], 'obj_idxs': obj_idxs[i, traj_idx]})
         return extras
 
     def train_components(self, batch):

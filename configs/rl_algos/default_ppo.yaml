@@ -47,11 +47,11 @@ rl_algo:
   gae_lambda: 0.95
   norm_adv: true
   clip_coef: 0.2
-  clip_vloss: true
+  clip_vloss: false
   ent_coef: 0.0
   vf_coef: 0.5
   max_grad_norm: 0.5
-  target_kl: 0.025
+  target_kl: null
   device: ${globals.device}
   policy:
     slot_extractor:
@@ -65,9 +65,10 @@ rl_algo:
     layer_normalization: false
     nonlinearity: tanh
     distribution:
-      name: GlobalStd
+      name: TwoHeaded
       starting_logstd: 0.
-      max_logstd: 2.
+      max_logstd: null
+      std_parameterization: softplus
       type: TanhNormal
   value:
     slot_extractor:
@@ -85,22 +86,23 @@ replay_buffer:
   discount: ${rl_algo.discount}
   common: null
   skill:
-    min_transitions: 25000
-    max_transitions: 2000000
-    batch_size: 2048
+    min_transitions: 25_000
+    max_transitions: 1_000_000
+    batch_size: 256
   policy:
     min_transitions: null
-    max_transitions: 25000
-    batch_size: 2048
+    max_transitions: 8_000
+    batch_size: 64
 
 trainer_args:
   n_parallel: 4
   traj_batch_size: 40
+  skills_per_trajectory: 2
   n_epochs: 100_000
   trans_optimization_epochs: null
-  skill_optimization_epochs: 50
-  policy_optimization_mult: 1
+  skill_optimization_epochs: 250
+  policy_optimization_mult: 3
   max_path_length: 200
-  transitions_before_training: null
+  transitions_before_training: 25_000
   log_frequency: 50_000
   eval_frequency: 200_000

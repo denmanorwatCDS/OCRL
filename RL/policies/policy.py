@@ -128,4 +128,4 @@ class Policy(torch.nn.Module):
     def get_logprob_and_entropy(self, observations, actions):
         dist, info = self.forward(observations = observations)
         log_probs, entropy = dist.log_prob(actions), dist.entropy()
-        return log_probs, entropy
+        return log_probs, entropy, info

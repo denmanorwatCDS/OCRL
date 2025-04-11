@@ -21,12 +21,13 @@ def discount_cumsum(x, discount):
     return scipy.signal.lfilter([1], [1, float(-discount)], x[::-1],
                                 axis=0)[::-1]
 
-def calculate_GAE(rewards, values, next_values, dones, discount, gae_lambda):
+def calculate_GAE(rewards, values, next_values, dones, options, discount, gae_lambda):
     # All arrays are expected to be of size len. 
     # This is because second dimension is always one for rewards, values, next_values and dones. 
     # All inputs are lists.
     
     # Preprocess obs so they can be processed in parallel
+
     max_length = -1
     for traj in rewards:
         max_length = max(traj.shape[0], max_length)
@@ -54,6 +55,7 @@ def calculate_GAE(rewards, values, next_values, dones, discount, gae_lambda):
     advantages = np.zeros(trajectory_info['dones'].shape)
     rewards, dones = trajectory_info['rewards'], trajectory_info['dones']
     values, next_values = trajectory_info['values'], trajectory_info['next_values']
+    options = np.array(options)
     for t in reversed(range(max_length)):
         nonterminal = 1 - trajectory_info['dones'][:, t]
 
@@ -62,6 +64,9 @@ def calculate_GAE(rewards, values, next_values, dones, discount, gae_lambda):
         
         # Generalized Advantage Estimation
         advantages[:, t] = last_gae_lambda = delta + discount * gae_lambda * nonterminal * last_gae_lambda
+        if t != 0:
+            last_gae_lambda = last_gae_lambda * (np.all(np.abs(options[:, t] - options[:, t-1]) < 1e-03, 
+                                                        axis=-1))
     returns = advantages + values
     
     # Remove padding (if, for current state, done for previous timestep and current timestep are both true,
@@ -208,6 +213,7 @@ class PathBuffer:
         self._first_idx_of_next_path = 0
         self._path_segments.clear()
         self._buffer.clear()
+        self.delete_recent_paths()
 
     def preprocess_data(self, paths):
         data = collections.defaultdict(list)
@@ -248,7 +254,8 @@ class PathBuffer:
             values = [paths[i]['agent_infos']['values'] for i in range(len(paths))]
             next_values = [paths[i]['agent_infos']['next_values'] for i in range(len(paths))]
             dones = [paths[i]['dones'] for i in range(len(paths))]
-            rets, advs = calculate_GAE(rewards, values, next_values, dones, self.discount, self.gae_lambda)
+            options = [paths[i]['agent_infos']['options'] for i in range(len(paths))]
+            rets, advs = calculate_GAE(rewards, values, next_values, dones, options, self.discount, self.gae_lambda)
             for ret, adv, vals, next_vals, in zip(rets, advs, values, next_values):
                 data['returns'].append(ret)
                 data['advantages'].append(adv)
@@ -260,11 +267,12 @@ class PathBuffer:
         for path in paths:
             self.recent_paths.append(path)
 
-    def pop_recent_paths(self):
-        outp = copy.deepcopy(self.recent_paths)
+    def get_recent_paths(self):
+        return copy.deepcopy(self.recent_paths)
+        
+    def delete_recent_paths(self):
         del self.recent_paths
         self.recent_paths = []
-        return outp
 
     def update_replay_buffer(self, data):
         if self.on_policy:
