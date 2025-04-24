@@ -26,6 +26,7 @@ def build_policy_net(env, policy_net_config):
                                                hidden_sizes = policy_net_config.hidden_sizes, 
                                                layer_normalization = policy_net_config.layer_normalization,
                                                hidden_nonlinearity = fetch_activation(policy_net_config.nonlinearity), 
+                                               std_parameterization = policy_net_config.distribution.std_parameterization,
                                                max_std = np.exp(policy_net_config.distribution.max_logstd),
                                                init_std = np.exp(policy_net_config.distribution.starting_logstd),
                                                normal_distribution_cls = fetch_dist_type(policy_net_config.distribution.type),
@@ -34,7 +35,8 @@ def build_policy_net(env, policy_net_config):
         policy_module = GaussianMLPGlobalStdModule(input_dim = module_obs_dim, output_dim = action_dim, 
                                                hidden_sizes = policy_net_config.hidden_sizes, 
                                                layer_normalization = policy_net_config.layer_normalization,
-                                               hidden_nonlinearity = fetch_activation(policy_net_config.nonlinearity), 
+                                               hidden_nonlinearity = fetch_activation(policy_net_config.nonlinearity),
+                                               std_parameterization = policy_net_config.distribution.std_parameterization,
                                                max_std = np.exp(policy_net_config.distribution.max_logstd),
                                                init_std = np.exp(policy_net_config.distribution.starting_logstd),
                                                normal_distribution_cls = fetch_dist_type(policy_net_config.distribution.type),
@@ -222,7 +224,9 @@ def collect_trajectories(env, agent, trajectories_length, trajectories_qty = Non
                     update_traj_with_info(generated_trajectories[j + pseudoepisode * env_qty], env_infos[j], 'env_infos')
                     agent_info = {}
                     if mode == 'train':
-                        agent_info.update({'log_probs': action_info['log_prob'][j]})
+                        agent_info.update({'log_probs': action_info['log_prob'][j], 
+                                           'pre_tanh_actions': action_info['pre_tanh_value'][j],
+                                           'options': np.zeros_like(action_info['log_prob'][j].shape, dtype = np.float32)})
                     update_traj_with_info(generated_trajectories[j + pseudoepisode * env_qty], agent_info, 'agent_infos')
             prev_obs = next_obs
             prev_dones = np.logical_or(prev_dones, dones)
@@ -252,14 +256,14 @@ def update_traj_with_info(target_dict, infos, info_dict_name):
                     data = np.expand_dims(infos[key].copy(), axis = 0)
                 else:
                     data = infos[key].copy()
-            elif isinstance(infos[key], (np.int64, np.float32, float)):
+            elif isinstance(infos[key], (np.int64, np.float32, float, bool)):
                 data = np.array([infos[key]])
             else:
                 assert False, 'Something went horribly wrong...'
             target_dict[info_dict_name][key] = data
     else:
         for key in infos.keys():
-            if isinstance(infos[key], (np.float32, float)):
+            if isinstance(infos[key], (np.float32, float, bool)):
                 target_dict[info_dict_name][key] = np.append(target_dict[info_dict_name][key], infos[key])
             elif len(infos[key].shape) > 0:
                 target_dict[info_dict_name][key] = np.append(target_dict[info_dict_name][key], 

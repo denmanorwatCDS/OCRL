@@ -125,7 +125,13 @@ class Policy(torch.nn.Module):
             action, agent_infos = self.get_actions(observation)
             return action[0], {k: v[0] for k, v in agent_infos.items()}
         
-    def get_logprob_and_entropy(self, observations, actions):
+    def get_logprob_and_entropy(self, observations, actions, pre_tanh_actions):
         dist, info = self.forward(observations = observations)
-        log_probs, entropy = dist.log_prob(actions), dist.entropy()
+        log_probs, entropy = dist.log_prob(value = actions, pre_tanh_value = pre_tanh_actions), dist.entropy()
         return log_probs, entropy, info
+    
+    def get_policy_parameters_without_std(self):
+        return self._module.get_policy_parameters_without_std()
+    
+    def get_policy_std_parameters(self):
+        return self._module.get_policy_std_parameters()

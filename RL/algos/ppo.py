@@ -53,12 +53,15 @@ class PPO(nn.Module):
     def train(self):
         self.option_policy.train(), self.critic.train()
 
-    def optimize_op(self, batch):
+    def optimize_actor(self, batch):
         logs = self.update_loss_act(batch)
         if logs is None:
             return logs
         self._gradient_descent(logs['actor_loss'], ['option_policy'])
-        logs.update(self.update_loss_vf(batch))
+        return logs
+    
+    def optimize_critic(self, batch):
+        logs = logs.update(self.update_loss_vf(batch))
         self._gradient_descent(logs['value_loss'], ['vf'])
         return logs
 
@@ -76,10 +79,10 @@ class PPO(nn.Module):
         # TODO uncomment lines
         obs = batch['obs']
         option, obj_idx = batch['options'], batch['obj_idxs']
-        actions, old_logprobs = batch['actions'], batch['log_probs']
+        actions, pre_tanh_actions, old_logprobs = batch['actions'], batch['pre_tanh_actions'], batch['log_probs']
         opt_input = {'obs': obs}
         opt_input.update({'options': option, 'obj_idxs': obj_idx})
-        new_logprobs, entropy, info = self.option_policy.get_logprob_and_entropy(opt_input, actions)
+        new_logprobs, entropy, info = self.option_policy.get_logprob_and_entropy(opt_input, actions, pre_tanh_actions)
         log_ratio = new_logprobs - old_logprobs
         ratio = log_ratio.exp()
 
@@ -92,7 +95,7 @@ class PPO(nn.Module):
         
         advantages = batch['advantages']
         if self.normalize_advantage:
-            advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+            advantages = (advantages - advantages.median()) / (advantages.max() - advantages.min() + 1e-8)
 
         pg_loss1 = -advantages * ratio
         pg_loss2 = -advantages * torch.clamp(ratio, 1 - self.clip_coef, 1 + self.clip_coef)

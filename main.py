@@ -9,7 +9,7 @@ import math
 from envs.utils.consistent_normalized_env import consistent_normalize, get_normalizer_preset
 from envs.mujoco.obs_wrapper import ExpanderWrapper
 from networks import pipeline
-from networks.distribution_networks import GaussianMLPIndependentStdModule, GaussianMLPTwoHeadedModule, GaussianMLPGlobalStdModule
+from networks.distribution_networks import GaussianMLPIndependentStdModule, GaussianMLPIndependendInputStdModule, GaussianMLPTwoHeadedModule, GaussianMLPGlobalStdModule
 from networks.feature_extractors import slot_extractors, slot_poolers
 from utils.distributions.tanh import TanhNormal
 from utils.weight_initializer.xavier_init import xavier_normal
@@ -189,6 +189,8 @@ def build_policy_net(env, policy_net_config):
                                                hidden_nonlinearity = fetch_activation(policy_net_config.nonlinearity), 
                                                max_std = np.exp(policy_net_config.distribution.max_logstd) \
                                                if policy_net_config.distribution.max_logstd is not None else None,
+                                               min_std = np.exp(policy_net_config.distribution.min_logstd) \
+                                               if policy_net_config.distribution.min_logstd is not None else None,
                                                init_std = np.exp(policy_net_config.distribution.starting_logstd),
                                                std_parameterization = policy_net_config.distribution.std_parameterization,
                                                normal_distribution_cls = fetch_dist_type(policy_net_config.distribution.type),
@@ -201,9 +203,25 @@ def build_policy_net(env, policy_net_config):
                                                hidden_nonlinearity = fetch_activation(policy_net_config.nonlinearity), 
                                                max_std = np.exp(policy_net_config.distribution.max_logstd),
                                                init_std = np.exp(policy_net_config.distribution.starting_logstd),
-                                               std_parameterization = policy_net_config.std_parameterization,
+                                               std_parameterization = policy_net_config.distribution.std_parameterization,
                                                normal_distribution_cls = fetch_dist_type(policy_net_config.distribution.type),
                                                output_w_init = functools.partial(xavier_normal, gain=1.))
+        
+    elif policy_net_config.distribution.name == 'SkillStd':
+        policy_module = GaussianMLPIndependendInputStdModule(input_idx_mean = [0, module_obs_dim], 
+                                                             input_idx_std = [pooler.outp_dim, pooler.outp_dim + policy_net_config.dim_option],
+                                                             output_dim = action_dim,
+                                                             hidden_sizes = policy_net_config.hidden_sizes, 
+                                                             layer_normalization = policy_net_config.layer_normalization,
+                                                             hidden_nonlinearity = fetch_activation(policy_net_config.nonlinearity), 
+                                                             max_std = np.exp(policy_net_config.distribution.max_logstd) \
+                                                             if policy_net_config.distribution.max_logstd is not None else None,
+                                                             min_std = np.exp(policy_net_config.distribution.min_logstd) \
+                                                             if policy_net_config.distribution.min_logstd is not None else None,
+                                                             init_std = np.exp(policy_net_config.distribution.starting_logstd),
+                                                             std_parameterization = policy_net_config.distribution.std_parameterization,
+                                                             normal_distribution_cls = fetch_dist_type(policy_net_config.distribution.type),
+                                                             output_w_init = functools.partial(xavier_normal, gain=1.))
         
     policy_module = pipeline.SkillObjectPipeline('obs', 'options', 'obj_idxs', 
                                                  slot_extractor = extractor, slot_pooler = pooler, 
@@ -358,10 +376,10 @@ def run():
     skill_dynamics = None
 
     dual_lam = ParameterModule(torch.Tensor([np.log(config.skill.dual_lam)]))
-
     optimizers = {
         'option_policy': torch.optim.Adam([
-            {'params': option_policy.parameters(), 'lr': config.rl_algo.policy.lr},
+            {'params': option_policy.get_policy_parameters_without_std(), 'lr': config.rl_algo.policy.lr},
+            {'params': option_policy.get_policy_std_parameters(), 'lr': config.rl_algo.policy.std_lr},
         ]),
         'traj_encoder': torch.optim.Adam([
             {'params': traj_encoder.parameters(), 'lr': config.skill.trajectory_encoder.lr},
@@ -436,7 +454,8 @@ def run():
                   dim_option = config.skill.dim_option, discrete = config.skill.discrete, 
                   unit_length = config.skill.unit_length, device = config.globals.device, 
                   dual_reg = config.skill.dual_reg, dual_slack = config.skill.dual_slack, 
-                  dual_dist = config.skill.dual_dist_name)
+                  dual_dist = config.skill.dual_dist_name, 
+                  target_traj_encoder_coef = config.skill.target_traj_encoder_coef**(1/config.trainer_args.skill_optimization_epochs))
         
     env.close()
     
@@ -511,8 +530,6 @@ def collect_trajectories(env, agent, trajectories_length, skills_per_traj = None
             action, action_info = agent.policy['option_policy'].get_actions(obs_and_option)
             next_obs, rewards, dones, env_infos = env.step(action)
             next_obs = np.transpose(next_obs, [0, 3, 1, 2]) if len(next_obs.shape) == 4 else next_obs
-            if (i == trajectories_length - 1):
-                dones = np.full((env_qty,), fill_value = True)
             for j, done in enumerate(prev_dones):
                 if not done:
                     update_traj_with_array(generated_trajectories[j + pseudoepisode * env_qty], prev_obs[j: j+1], 
@@ -529,7 +546,8 @@ def collect_trajectories(env, agent, trajectories_length, skills_per_traj = None
                     agent_info = {}
                     agent_info.update({'options': cur_options[j], 'obj_idxs': cur_obj_idx[j]})
                     if mode == 'train':
-                        agent_info.update({'log_probs': action_info['log_prob'][j]})
+                        agent_info.update({'log_probs': action_info['log_prob'][j], 
+                                           'pre_tanh_actions': action_info['pre_tanh_value'][j]})
                     update_traj_with_info(generated_trajectories[j + pseudoepisode * env_qty], agent_info, 'agent_infos')
             prev_obs = next_obs
             prev_dones = np.logical_or(prev_dones, dones)
@@ -548,8 +566,6 @@ def collect_trajectories(env, agent, trajectories_length, skills_per_traj = None
                     'obj_idxs': obj_idxs.reshape((-1,) + tuple(obj_idxs.shape[2:])).to(agent.device)}
         values = agent.critic(prev_obs).detach().cpu().numpy().astype(np.float32).reshape((trajectories_qty, -1))
         next_values = agent.critic(next_obs).detach().cpu().numpy().astype(np.float32).reshape((trajectories_qty, -1))
-        agent_info.update({'values': agent.critic(prev_obs).detach().cpu().numpy(),
-                           'next_values': agent.critic(next_obs).detach().cpu().numpy()})
         for i in range(len(generated_trajectories)):
             generated_trajectories[i]['agent_infos']['values'] = values[i]
             generated_trajectories[i]['agent_infos']['next_values'] = next_values[i]
@@ -627,16 +643,29 @@ def train_cycle(trainer_config, agent, skill_model, replay_buffer, rollout_buffe
             if not agent.on_policy:
                 logs = agent.optimize_op(modified_batch)
                 policy_stats.save_iter(logs)
+            """
             else:
                 paths = replay_buffer.get_recent_paths()
-                for path in paths:
+                original_shapes = {'obs': paths[0]['observations'].shape, 'next_obs': paths[0]['next_observations'].shape,
+                                   'obj_idxs': paths[0]['agent_infos']['obj_idxs'].shape, 'options': paths[0]['agent_infos']['options'].shape,
+                                   'rewards': paths[0]['rewards'].shape}
+                for batched_idx in range(0, len(paths), trainer_config.on_policy_batch):
+                    low, high = batched_idx, min(len(paths), batched_idx + trainer_config.on_policy_batch)
+                    obs = torch.concatenate([torch.from_numpy(paths[i]['observations'])
+                                       for i in range(low, high)], axis=0).to(agent.device)
+                    next_obs = torch.concatenate([torch.from_numpy(paths[i]['next_observations'])
+                                            for i in range(low, high)], axis=0).to(agent.device)
+                    obj_idxs = torch.concatenate([torch.from_numpy(paths[i]['agent_infos']['obj_idxs'])
+                                            for i in range(low, high)], axis=0).to(agent.device)
+                    options = torch.concatenate([torch.from_numpy(paths[i]['agent_infos']['options']) 
+                                           for i in range(low, high)], axis=0).to(agent.device)
+                    torch_paths = {'obs': obs, 'next_obs': next_obs, 'obj_idxs': obj_idxs, 'options': options}
                     with torch.no_grad():
-                        torch_path = {'obs': torch.from_numpy(path['observations']).to(agent.device), 
-                                      'next_obs': torch.from_numpy(path['next_observations']).to(agent.device), 
-                                      'obj_idxs': torch.from_numpy(path['agent_infos']['obj_idxs']).to(agent.device), 
-                                      'options': torch.from_numpy(path['agent_infos']['options']).to(agent.device)}
-                        skill_model._update_rewards(torch_path)
-                        path['rewards'] = torch_path['rewards'].detach().cpu().numpy()
+                        skill_model._update_rewards(torch_paths)
+                        for key in original_shapes.keys():
+                            torch_paths[key] = torch_paths[key].reshape((high - low,) + original_shapes[key])
+                    for k in range(low, high):
+                        paths[k]['rewards'] = torch_paths['rewards'][k - low].cpu().numpy()
                 rollout_buffer.update_replay_buffer(paths)
                 for j in range(trainer_config.policy_optimization_mult):
                     batch = rollout_buffer.sample_transitions()
@@ -649,8 +678,42 @@ def train_cycle(trainer_config, agent, skill_model, replay_buffer, rollout_buffe
                 rollout_buffer.clear()
                 if ppo_log is None:
                     break
+            
         replay_buffer.delete_recent_paths()
+        """
         
+        paths = replay_buffer.get_recent_paths()
+        original_shapes = {'obs': paths[0]['observations'].shape, 'next_obs': paths[0]['next_observations'].shape,
+                                   'obj_idxs': paths[0]['agent_infos']['obj_idxs'].shape, 'options': paths[0]['agent_infos']['options'].shape,
+                                   'rewards': paths[0]['rewards'].shape}
+        for batched_idx in range(0, len(paths), trainer_config.on_policy_batch):
+            low, high = batched_idx, min(len(paths), batched_idx + trainer_config.on_policy_batch)
+            obs = torch.concatenate([torch.from_numpy(paths[i]['observations'])
+                               for i in range(low, high)], axis=0).to(agent.device)
+            next_obs = torch.concatenate([torch.from_numpy(paths[i]['next_observations'])
+                                    for i in range(low, high)], axis=0).to(agent.device)
+            obj_idxs = torch.concatenate([torch.from_numpy(paths[i]['agent_infos']['obj_idxs'])
+                                    for i in range(low, high)], axis=0).to(agent.device)
+            options = torch.concatenate([torch.from_numpy(paths[i]['agent_infos']['options']) 
+                                   for i in range(low, high)], axis=0).to(agent.device)
+            torch_paths = {'obs': obs, 'next_obs': next_obs, 'obj_idxs': obj_idxs, 'options': options}
+            with torch.no_grad():
+                skill_model._update_rewards_target(torch_paths)
+                for key in original_shapes.keys():
+                    torch_paths[key] = torch_paths[key].reshape((high - low,) + original_shapes[key])
+            for k in range(low, high):
+                paths[k]['rewards'] = torch_paths['rewards'][k - low].cpu().numpy()
+        rollout_buffer.update_replay_buffer(paths)
+        
+        for j in range(skill_optim_steps * trainer_config.policy_optimization_mult):
+            batch = rollout_buffer.sample_transitions()
+            batch = prepare_batch(batch)
+            ppo_log = agent.optimize_op(batch)
+            if ppo_log is None:
+                break
+            policy_stats.save_iter(ppo_log)
+        replay_buffer.delete_recent_paths()
+
         if (prev_cur_step // trainer_config.log_frequency) < (cur_step // trainer_config.log_frequency):
             comet_logger.log_metrics(skill_stats.pop_statistics(), step = cur_step)
             comet_logger.log_metrics({**policy_stats.pop_statistics(), 

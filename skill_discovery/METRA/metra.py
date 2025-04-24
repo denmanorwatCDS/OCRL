@@ -24,9 +24,13 @@ class METRA():
             dual_reg,
             dual_slack,
             dual_dist,
+            target_traj_encoder_coef,
     ):
         self.device = device
         self.traj_encoder = traj_encoder.to(self.device)
+        self._target_traj_encoder_coef = target_traj_encoder_coef
+        if target_traj_encoder_coef > 1e-03:
+            self._target_traj_encoder = copy.deepcopy(self.traj_encoder)
 
         self.dual_lam = dual_lam.to(self.device)
         self.param_modules = {
@@ -87,6 +91,7 @@ class METRA():
             logs['LossTe'],
             optimizer_keys=['traj_encoder'],
         )
+        self._update_target_te()
 
         if self.dual_reg:
             logs.update(self._update_loss_dual_lam(batch))
@@ -108,6 +113,36 @@ class METRA():
 
         cur_z = self.traj_encoder(obs).mean
         next_z = self.traj_encoder(next_obs).mean
+        target_z = next_z - cur_z
+
+        if self.discrete:
+            masks = (batch['options'] - batch['options'].mean(dim=1, keepdim=True)) * self.dim_option / (self.dim_option - 1 if self.dim_option != 1 else 1)
+            rewards = (target_z * masks).sum(dim=1)
+        else:
+            inner = (target_z * batch['options']).sum(dim=1)
+            rewards = inner
+
+        # For dual objectives
+        batch.update({
+            'cur_z': cur_z,
+            'next_z': next_z,
+        })
+
+        logs.update({
+            'PureRewardMean': rewards.mean(),
+            'PureRewardStd': rewards.std(),
+        })
+
+        batch['rewards'] = rewards
+        return logs
+    
+    def _update_rewards_target(self, batch):
+        logs = {}
+        obs = {'obs': batch['obs'], 'obj_idxs': batch['obj_idxs']}
+        next_obs = {'obs': batch['next_obs'], 'obj_idxs': batch['obj_idxs']}
+
+        cur_z = self._target_traj_encoder(obs).mean
+        next_z = self._target_traj_encoder(next_obs).mean
         target_z = next_z - cur_z
 
         if self.discrete:
@@ -194,6 +229,11 @@ class METRA():
             'LossTe': loss_te,
         })
         return logs
+    
+    def _update_target_te(self):
+        for param_name, param in self._target_traj_encoder.state_dict().items():
+            param.data.copy_(param.data * self._target_traj_encoder_coef + 
+                             self.traj_encoder.state_dict()[param_name].data * (1 - self._target_traj_encoder_coef))
 
     def _update_loss_dual_lam(self, batch):
         logs = {}

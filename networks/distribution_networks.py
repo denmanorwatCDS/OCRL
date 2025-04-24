@@ -1,5 +1,6 @@
 import abc
 import torch
+import itertools
 
 from torch import nn
 from torch.distributions import Normal
@@ -115,7 +116,7 @@ class GaussianMLPBaseModule(nn.Module):
         self._layer_normalization = layer_normalization
         self._norm_dist_class = normal_distribution_cls
 
-        if self._std_parameterization not in ('exp', 'softplus'):
+        if self._std_parameterization not in ('exp', 'softplus', 'sigmoid'):
             raise NotImplementedError
 
         init_std_param = torch.Tensor([init_std]).log()
@@ -127,16 +128,12 @@ class GaussianMLPBaseModule(nn.Module):
 
         self._min_std_param = self._max_std_param = None
         if min_std is not None:
-            if self._std_parameterization == 'exp':
-                self._min_std_param = torch.Tensor([min_std]).log()
-            elif self._std_parameterization == 'softplus':
-                self._min_std_param = torch.Tensor([min_std]).exp().add(1.).log()
+            if self._std_parameterization in ['sigmoid', 'softplus', 'exp']:
+                self._min_std_param = torch.Tensor([min_std])
             self.register_buffer('min_std_param', self._min_std_param)
         if max_std is not None:
-            if self._std_parameterization == 'exp':
-                self._max_std_param = torch.Tensor([max_std]).log()
-            elif self._std_parameterization == 'softplus':
-                self._max_std_param = torch.Tensor([max_std]).exp().add(1.).log()
+            if self._std_parameterization in ['sigmoid', 'softplus', 'exp']:
+                self._max_std_param = torch.Tensor([max_std])
             self.register_buffer('max_std_param', self._max_std_param)
 
     def to(self, *args, **kwargs):
@@ -182,20 +179,22 @@ class GaussianMLPBaseModule(nn.Module):
         """
         mean, log_std_uncentered = self._get_mean_and_log_std(inp)
 
-        if self._std_parameterization not in ['softplus']:
-            if self._min_std_param or self._max_std_param:
-                log_std_uncentered = log_std_uncentered.clamp(
+        if self._std_parameterization == 'exp':
+            std = log_std_uncentered.exp()
+        elif self._std_parameterization == 'softplus':
+            std = log_std_uncentered.exp().add(1.).log()
+        elif self._std_parameterization == 'sigmoid':
+            std = torch.sigmoid(log_std_uncentered) * (self._max_std_param - self._min_std_param) + self._min_std_param
+        else:
+            assert False
+
+        if (self._min_std_param or self._max_std_param) and (self._std_parameterization != 'sigmoid'):
+            std = std.clamp(
                     min=(None if self._min_std_param is None else
                          self._min_std_param.item()),
                     max=(None if self._max_std_param is None else
                          self._max_std_param.item()))
 
-        if self._std_parameterization == 'exp':
-            std = log_std_uncentered.exp()
-        elif self._std_parameterization == 'softplus':
-            std = log_std_uncentered.exp().add(1.).log()
-        else:
-            assert False
         dist = self._norm_dist_class(mean, std)
         # This control flow is needed because if a TanhNormal distribution is
         # wrapped by torch.distributions.Independent, then custom functions
@@ -207,6 +206,10 @@ class GaussianMLPBaseModule(nn.Module):
             dist = Independent(dist, 1)
 
         return dist
+    
+    def forward_mode(self, inp):
+        dist = self.forward(inp)
+        return dist.mean
 
 class GaussianMLPIndependentStdModule(GaussianMLPBaseModule):
     """GaussianMLPModule which has two different mean and std network.
@@ -482,33 +485,16 @@ class GaussianMLPTwoHeadedModule(GaussianMLPBaseModule):
         """
         return self._shared_mean_log_std_network(inp)
     
-    def forward_mode(self, inp):
-        mean, log_std_uncentered = self._get_mean_and_log_std(inp)
-
-        if self._std_parameterization not in ['softplus']:
-            if self._min_std_param or self._max_std_param:
-                log_std_uncentered = log_std_uncentered.clamp(
-                    min=(None if self._min_std_param is None else
-                         self._min_std_param.item()),
-                    max=(None if self._max_std_param is None else
-                         self._max_std_param.item()))
-
-        if self._std_parameterization == 'exp':
-            std = log_std_uncentered.exp()
-        else:
-            std = log_std_uncentered.exp().add(1.).log()
-
-        dist = self._norm_dist_class(mean, std)
-        # This control flow is needed because if a TanhNormal distribution is
-        # wrapped by torch.distributions.Independent, then custom functions
-        # such as rsample_with_pre_tanh_value of the TanhNormal distribution
-        # are not accessable.
-        if not isinstance(dist, TanhNormal):
-            # Makes it so that a sample from the distribution is treated as a
-            # single sample and not dist.batch_shape samples.
-            dist = Independent(dist, 1)
-
-        return dist.mean
+    def get_parameters_without_std(self):
+        params = []
+        for name, param in self.named_parameters():
+            if not ("_shared_mean_log_std_network" in name):
+                params.append(param)
+        return iter(params)
+    
+    def get_std_parameters(self):
+        return iter([self._shared_mean_log_std_network._output_layers[1].linear.weight,
+                     self._shared_mean_log_std_network._output_layers[1].linear.bias])
     
 class GaussianMLPGlobalStdModule(GaussianMLPBaseModule):
     def __init__(self,
@@ -556,6 +542,7 @@ class GaussianMLPGlobalStdModule(GaussianMLPBaseModule):
             output_w_init=self._output_w_init,
             output_b_init=nn.init.zeros_,
             layer_normalization=self._layer_normalization)
+        
         assert len(self._action_dim.shape) == 0
         self._log_std_parameter = torch.nn.Parameter(torch.Tensor([init_std for i in range(self._action_dim)]).log())
 
@@ -571,31 +558,101 @@ class GaussianMLPGlobalStdModule(GaussianMLPBaseModule):
 
         """
         return [self.mean_network(inp), self._log_std_parameter]
+    
+    def get_parameters_without_std(self):
+        params = []
+        for name, param in self.named_parameters():
+            if not ('_log_std_parameter' in name):
+                params.append(param)
+        return iter(params)
+    
+    def get_std_parameters(self):
+        return iter([self._log_std_parameter])
+    
+class GaussianMLPIndependendInputStdModule(GaussianMLPBaseModule):
+    def __init__(self,
+                 input_idx_mean,
+                 input_idx_std,
+                 output_dim,
+                 hidden_sizes=(32, 32),
+                 hidden_nonlinearity=torch.tanh,
+                 hidden_w_init=nn.init.xavier_uniform_,
+                 hidden_b_init=nn.init.zeros_,
+                 output_nonlinearity=None,
+                 output_w_init=nn.init.xavier_uniform_,
+                 output_b_init=nn.init.zeros_,
+                 learn_std=True,
+                 init_std=1.0,
+                 min_std=1e-6,
+                 max_std=None,
+                 std_parameterization='exp',
+                 layer_normalization=False,
+                 normal_distribution_cls=Normal):
+        super(GaussianMLPIndependendInputStdModule,
+              self).__init__(input_dim=None,
+                             output_dim=output_dim,
+                             hidden_sizes=hidden_sizes,
+                             hidden_nonlinearity=hidden_nonlinearity,
+                             hidden_w_init=hidden_w_init,
+                             hidden_b_init=hidden_b_init,
+                             output_nonlinearity=output_nonlinearity,
+                             output_w_init=output_w_init,
+                             output_b_init=output_b_init,
+                             learn_std=learn_std,
+                             init_std=init_std,
+                             min_std=min_std,
+                             max_std=max_std,
+                             std_parameterization=std_parameterization,
+                             layer_normalization=layer_normalization,
+                             normal_distribution_cls=normal_distribution_cls)
+        
+        self.input_idx_mean = input_idx_mean
+        self.input_idx_std = input_idx_std
+        
+        self.mean_network = MLPModule(input_dim = input_idx_mean[1] - input_idx_mean[0],
+            output_dim=self._action_dim,
+            hidden_sizes=self._hidden_sizes,
+            hidden_nonlinearity=self._hidden_nonlinearity,
+            hidden_w_init=self._hidden_w_init,
+            hidden_b_init=self._hidden_b_init,
+            output_nonlinearity=self._output_nonlinearity,
+            output_w_init=self._output_w_init,
+            output_b_init=nn.init.zeros_,
+            layer_normalization=self._layer_normalization)
+        
+        self._logstd_network = MLPModule(input_dim = input_idx_std[1] - input_idx_std[0],
+            output_dim=self._action_dim,
+            hidden_sizes=self._hidden_sizes,
+            hidden_nonlinearity=self._hidden_nonlinearity,
+            hidden_w_init=self._hidden_w_init,
+            hidden_b_init=self._hidden_b_init,
+            output_nonlinearity=self._output_nonlinearity,
+            output_w_init=self._output_w_init,
+            output_b_init= lambda x: nn.init.constant_(x, self._init_std.item()),
+            layer_normalization=self._layer_normalization)
+        
+        assert len(self._action_dim.shape) == 0
 
-    def forward_mode(self, inp):
-        mean, log_std_uncentered = self._get_mean_and_log_std(inp)
+    def _get_mean_and_log_std(self, inp):
+        """Get mean and std of Gaussian distribution given inputs.
 
-        if self._std_parameterization not in ['softplus']:
-            if self._min_std_param or self._max_std_param:
-                log_std_uncentered = log_std_uncentered.clamp(
-                    min=(None if self._min_std_param is None else
-                         self._min_std_param.item()),
-                    max=(None if self._max_std_param is None else
-                         self._max_std_param.item()))
+        Args:
+            *inputs: Input to the module.
 
-        if self._std_parameterization == 'exp':
-            std = log_std_uncentered.exp()
-        else:
-            std = log_std_uncentered.exp().add(1.).log()
+        Returns:
+            torch.Tensor: The mean of Gaussian distribution.
+            torch.Tensor: The variance of Gaussian distribution.
 
-        dist = self._norm_dist_class(mean, std)
-        # This control flow is needed because if a TanhNormal distribution is
-        # wrapped by torch.distributions.Independent, then custom functions
-        # such as rsample_with_pre_tanh_value of the TanhNormal distribution
-        # are not accessable.
-        if not isinstance(dist, TanhNormal):
-            # Makes it so that a sample from the distribution is treated as a
-            # single sample and not dist.batch_shape samples.
-            dist = Independent(dist, 1)
-
-        return dist.mean
+        """
+        return [self.mean_network(inp[..., self.input_idx_mean[0]: self.input_idx_mean[1]]), 
+                self._logstd_network(inp[..., self.input_idx_std[0]: self.input_idx_std[1]])]
+    
+    def get_parameters_without_std(self):
+        params = []
+        for name, param in self.named_parameters():
+            if not ('_logstd_network' in name):
+                params.append(param)
+        return iter(params)
+    
+    def get_std_parameters(self):
+        return self._logstd_network.parameters()

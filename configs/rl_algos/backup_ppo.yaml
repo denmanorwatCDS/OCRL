@@ -25,7 +25,6 @@ skill:
   dual_dist: null
   dual_lam: 30
   dual_lr: 1e-4
-  target_traj_encoder: 0.
   trajectory_encoder:
     slot_extractor:
       name: null
@@ -43,12 +42,16 @@ skill:
     spectral_normalization: false
 
 rl_algo:
-  name: 'SAC'
-  tau: 5e-3
-  scale_reward: 1.
-  target_coef: 1.
+  name: 'PPO'
   discount: 0.99
-  gae_lambda: null
+  gae_lambda: 0.95
+  norm_adv: true
+  clip_coef: 0.2
+  clip_vloss: false
+  ent_coef: 0.0
+  vf_coef: 0.5
+  max_grad_norm: 0.5
+  target_kl: null
   device: ${globals.device}
   policy:
     slot_extractor:
@@ -57,19 +60,18 @@ rl_algo:
       name: null
     name: 'option_policy'
     lr: 1e-4
-    std_lr: ${rl_algo.policy.lr}
     dim_option: ${skill.dim_option}
     hidden_sizes: ${globals.mlp_arch}
     layer_normalization: false
     nonlinearity: tanh
     distribution:
       name: TwoHeaded
-      starting_logstd: 0.
-      max_logstd: 2.
-      min_logstd: -5
-      std_parameterization: exp
+      starting_logstd: -0.45
+      max_logstd: -0.5
+      min_logstd: null
+      std_parameterization: softplus
       type: TanhNormal
-  critics:
+  value:
     slot_extractor:
       name: null
     slot_pooler:
@@ -79,31 +81,29 @@ rl_algo:
     hidden_sizes: ${globals.mlp_arch}
     nonlinearity: relu
     layer_normalization: false
-  alpha:
-    value: 1e-2
-    lr: 1e-4
 
 replay_buffer:
   gae_lambda: ${rl_algo.gae_lambda}
   discount: ${rl_algo.discount}
-  common:
-    min_transitions: 10000
-    max_transitions: 300000
+  common: null
+  skill:
+    min_transitions: 25_000
+    max_transitions: 1_000_000
     batch_size: 256
-    discount: ${rl_algo.discount}
-  skill: null
-  policy: null
+  policy:
+    min_transitions: null
+    max_transitions: 100_000
+    batch_size: 256
 
 trainer_args:
   n_parallel: 4
-  on_policy_batch: null
-  traj_batch_size: 8
+  traj_batch_size: 100
   skills_per_trajectory: 1
   n_epochs: 100_000
-  trans_optimization_epochs: 200
-  skill_optimization_epochs: null
-  policy_optimization_mult: null
+  trans_optimization_epochs: null
+  skill_optimization_epochs: 625
+  policy_optimization_mult: 1
   max_path_length: 200
-  transitions_before_training: 10_000
+  transitions_before_training: 25_000
   log_frequency: 50_000
-  eval_frequency: 250_000
+  eval_frequency: 200_000

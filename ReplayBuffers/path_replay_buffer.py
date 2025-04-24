@@ -237,8 +237,8 @@ class PathBuffer:
                 data['ori_obs'].append(path['env_infos']['ori_obs'])
             if 'next_ori_obs' in path['env_infos'].keys():
                 data['next_ori_obs'].append(path['env_infos']['next_ori_obs'])
-            if 'pre_tanh_value' in path['agent_infos']:
-                data['pre_tanh_values'].append(path['agent_infos']['pre_tanh_value'])
+            if 'pre_tanh_actions' in path['agent_infos']:
+                data['pre_tanh_actions'].append(path['agent_infos']['pre_tanh_actions'])
             if 'log_probs' in path['agent_infos']:
                 data['log_probs'].append(path['agent_infos']['log_probs'])
             if 'options' in path['agent_infos']:

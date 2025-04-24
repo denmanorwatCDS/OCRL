@@ -25,6 +25,7 @@ skill:
   dual_dist: null
   dual_lam: 30
   dual_lr: 1e-4
+  target_traj_encoder_coef: 0.8
   trajectory_encoder:
     slot_extractor:
       name: null
@@ -60,14 +61,16 @@ rl_algo:
       name: null
     name: 'option_policy'
     lr: 1e-4
+    std_lr: 1e-04
     dim_option: ${skill.dim_option}
     hidden_sizes: ${globals.mlp_arch}
     layer_normalization: false
     nonlinearity: tanh
     distribution:
-      name: TwoHeaded
-      starting_logstd: 0.
-      max_logstd: null
+      name: SkillStd
+      starting_logstd: -1
+      max_logstd: 0
+      min_logstd: null
       std_parameterization: softplus
       type: TanhNormal
   value:
@@ -91,16 +94,17 @@ replay_buffer:
     batch_size: 256
   policy:
     min_transitions: null
-    max_transitions: 8_000
-    batch_size: 64
+    max_transitions: 100_000
+    batch_size: 256
 
 trainer_args:
   n_parallel: 4
-  traj_batch_size: 40
-  skills_per_trajectory: 2
+  on_policy_batch: 15
+  traj_batch_size: 8
+  skills_per_trajectory: 1
   n_epochs: 100_000
   trans_optimization_epochs: null
-  skill_optimization_epochs: 250
+  skill_optimization_epochs: 50
   policy_optimization_mult: 3
   max_path_length: 200
   transitions_before_training: 25_000
