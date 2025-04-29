@@ -49,7 +49,7 @@ rl_algo:
   norm_adv: true
   clip_coef: 0.2
   clip_vloss: false
-  ent_coef: 0.0
+  ent_coef: 0
   vf_coef: 0.5
   max_grad_norm: 0.5
   target_kl: null
@@ -67,12 +67,13 @@ rl_algo:
     layer_normalization: false
     nonlinearity: tanh
     distribution:
-      name: SkillStd
-      starting_logstd: -1
-      max_logstd: 0
+      name: GlobalStd
+      starting_logstd: 0.
+      max_logstd: 1
       min_logstd: null
-      std_parameterization: softplus
-      type: TanhNormal
+      std_parameterization: exp
+      type: PPOTanhNormal
+      output_gain: 0.01
   value:
     slot_extractor:
       name: null
@@ -81,7 +82,7 @@ rl_algo:
     lr: 1e-4
     dim_option: ${skill.dim_option}
     hidden_sizes: ${globals.mlp_arch}
-    nonlinearity: relu
+    nonlinearity: tanh
     layer_normalization: false
 
 replay_buffer:
@@ -100,11 +101,11 @@ replay_buffer:
 trainer_args:
   n_parallel: 4
   on_policy_batch: 15
-  traj_batch_size: 8
-  skills_per_trajectory: 1
+  traj_batch_size: 40
+  skills_per_trajectory: 20
   n_epochs: 100_000
   trans_optimization_epochs: null
-  skill_optimization_epochs: 50
+  skill_optimization_epochs: 250
   policy_optimization_mult: 3
   max_path_length: 200
   transitions_before_training: 25_000

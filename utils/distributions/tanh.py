@@ -263,3 +263,35 @@ class TanhNormal(torch.distributions.Distribution):
 
         """
         return self.__class__.__name__
+    
+class PPOTanhNormal(TanhNormal):
+    def __init__(self, loc, scale):
+        super().__init__(loc, scale)
+
+    def log_prob(self, value = None, pre_tanh_value = None):
+        """The log likelihood of a sample on the this Tanh Distribution.
+
+        Args:
+            value (torch.Tensor): The sample whose loglikelihood is being
+                computed.
+            pre_tanh_value (torch.Tensor): The value prior to having the tanh
+                function applied to it but after it has been sampled from the
+                normal distribution.
+            epsilon (float): Regularization constant. Making this value larger
+                makes the computation more stable but less precise.
+
+        Note:
+              when pre_tanh_value is None, an estimate is made of what the
+              value is. This leads to a worse estimation of the log_prob.
+              If the value being used is collected from functions like
+              `sample` and `rsample`, one can instead use functions like
+              `sample_return_pre_tanh_value` or
+              `rsample_return_pre_tanh_value`
+
+
+        Returns:
+            torch.Tensor: The log likelihood of value on the distribution.
+
+        """
+        # pylint: disable=arguments-differ
+        return self._normal.log_prob(pre_tanh_value)

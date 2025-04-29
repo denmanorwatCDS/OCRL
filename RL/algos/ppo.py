@@ -36,6 +36,7 @@ class PPO(nn.Module):
         self.device = device
         self.critic = vf.to(device)
         self.option_policy = option_policy.to(device)
+        self.beta = 1.
 
     @property
     def policy(self):
@@ -53,15 +54,12 @@ class PPO(nn.Module):
     def train(self):
         self.option_policy.train(), self.critic.train()
 
-    def optimize_actor(self, batch):
+    def optimize_op(self, batch):
         logs = self.update_loss_act(batch)
         if logs is None:
             return logs
         self._gradient_descent(logs['actor_loss'], ['option_policy'])
-        return logs
-    
-    def optimize_critic(self, batch):
-        logs = logs.update(self.update_loss_vf(batch))
+        logs.update(self.update_loss_vf(batch))
         self._gradient_descent(logs['value_loss'], ['vf'])
         return logs
 
@@ -69,8 +67,6 @@ class PPO(nn.Module):
         for key in optimizer_keys:
             self._optimizers[key].zero_grad()
         loss.backward()
-        a = clip_grad_norm_(self.option_policy.parameters(), self.max_grad_norm)
-        b = clip_grad_norm_(self.critic.parameters(), self.max_grad_norm)
         for key in optimizer_keys:
             self._optimizers[key].step()
             self._optimizers[key].zero_grad()
@@ -95,7 +91,7 @@ class PPO(nn.Module):
         
         advantages = batch['advantages']
         if self.normalize_advantage:
-            advantages = (advantages - advantages.median()) / (advantages.max() - advantages.min() + 1e-8)
+            advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
         pg_loss1 = -advantages * ratio
         pg_loss2 = -advantages * torch.clamp(ratio, 1 - self.clip_coef, 1 + self.clip_coef)
@@ -127,4 +123,9 @@ class PPO(nn.Module):
             v_loss = self.vf_coef * vf_loss_max.mean()
         else:
             v_loss = ((new_values - returns)**2).mean()
-        return {'value_loss': v_loss}
+        
+        return {'value_loss': v_loss, 
+                'return_mean': returns.mean(),
+                'returns_std': returns.std()}
+    
+    def update_target_policy(self):

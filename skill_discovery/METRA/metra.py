@@ -135,36 +135,6 @@ class METRA():
 
         batch['rewards'] = rewards
         return logs
-    
-    def _update_rewards_target(self, batch):
-        logs = {}
-        obs = {'obs': batch['obs'], 'obj_idxs': batch['obj_idxs']}
-        next_obs = {'obs': batch['next_obs'], 'obj_idxs': batch['obj_idxs']}
-
-        cur_z = self._target_traj_encoder(obs).mean
-        next_z = self._target_traj_encoder(next_obs).mean
-        target_z = next_z - cur_z
-
-        if self.discrete:
-            masks = (batch['options'] - batch['options'].mean(dim=1, keepdim=True)) * self.dim_option / (self.dim_option - 1 if self.dim_option != 1 else 1)
-            rewards = (target_z * masks).sum(dim=1)
-        else:
-            inner = (target_z * batch['options']).sum(dim=1)
-            rewards = inner
-
-        # For dual objectives
-        batch.update({
-            'cur_z': cur_z,
-            'next_z': next_z,
-        })
-
-        logs.update({
-            'PureRewardMean': rewards.mean(),
-            'PureRewardStd': rewards.std(),
-        })
-
-        batch['rewards'] = rewards
-        return logs
 
     def _update_loss_te(self, batch):
         logs = {}

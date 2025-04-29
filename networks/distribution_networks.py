@@ -544,7 +544,7 @@ class GaussianMLPGlobalStdModule(GaussianMLPBaseModule):
             layer_normalization=self._layer_normalization)
         
         assert len(self._action_dim.shape) == 0
-        self._log_std_parameter = torch.nn.Parameter(torch.Tensor([init_std for i in range(self._action_dim)]).log())
+        self._log_std_parameter = torch.nn.Parameter(torch.Tensor([[init_std for i in range(self._action_dim)]]).log())
 
     def _get_mean_and_log_std(self, inp):
         """Get mean and std of Gaussian distribution given inputs.

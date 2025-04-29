@@ -69,6 +69,7 @@ rl_algo:
       min_logstd: -5
       std_parameterization: exp
       type: TanhNormal
+      output_gain: 1.
   critics:
     slot_extractor:
       name: null
