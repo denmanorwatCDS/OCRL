@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
     "akro==0.0.8",
-    "comet-ml==3.47.1",
+    "comet-ml==3.47.2",
     "cython==0.29.35",
     "dm-control==1.0.5",
     "dm-env==1.5",
@@ -30,4 +30,5 @@ dependencies = [
     "scipy==1.10.1",
     "swig==3.0.12",
     "torch==2.0.1",
+    "tyro==0.8.5",
 ]

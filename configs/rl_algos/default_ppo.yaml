@@ -4,7 +4,7 @@ globals:
   seed: 42
   n_thread: 1
   n_parallel: 8
-  mlp_arch: [1024, 1024]
+  mlp_arch: [128, 128]
 
 env:
   name: maze
@@ -32,7 +32,7 @@ skill:
     slot_pooler:
       name: null
     dim_option: ${skill.dim_option}
-    hidden_sizes: ${globals.mlp_arch}
+    hidden_sizes: [1024, 1024]
     lr: 1e-4
     nonlinearity: relu
     init_std: 1
@@ -48,8 +48,8 @@ rl_algo:
   gae_lambda: 0.95
   norm_adv: true
   clip_coef: 0.2
-  clip_vloss: false
-  ent_coef: 0
+  clip_vloss: true
+  ent_coef: 0.0
   vf_coef: 0.5
   max_grad_norm: 0.5
   target_kl: null
@@ -60,28 +60,37 @@ rl_algo:
     slot_pooler:
       name: null
     name: 'option_policy'
-    lr: 1e-4
-    std_lr: 1e-04
+    lr: 3e-4
+    std_lr: 3e-04
     dim_option: ${skill.dim_option}
     hidden_sizes: ${globals.mlp_arch}
+    hidden_w_init:
+      name: orthogonal
+    output_w_init:
+      name: orthogonal
+      std: 0.01
     layer_normalization: false
     nonlinearity: tanh
     distribution:
       name: GlobalStd
       starting_logstd: 0.
-      max_logstd: 1
+      max_logstd: 100
       min_logstd: null
       std_parameterization: exp
       type: PPOTanhNormal
-      output_gain: 0.01
   value:
     slot_extractor:
       name: null
     slot_pooler:
       name: null
-    lr: 1e-4
+    lr: 3e-4
     dim_option: ${skill.dim_option}
     hidden_sizes: ${globals.mlp_arch}
+    hidden_w_init:
+      name: orthogonal
+    output_w_init:
+      name: orthogonal
+      std: 1.
     nonlinearity: tanh
     layer_normalization: false
 
@@ -96,18 +105,18 @@ replay_buffer:
   policy:
     min_transitions: null
     max_transitions: 100_000
-    batch_size: 256
+    batch_size: 64
 
 trainer_args:
   n_parallel: 4
   on_policy_batch: 15
-  traj_batch_size: 40
-  skills_per_trajectory: 20
+  traj_batch_size: 2
+  skills_per_trajectory: 1
   n_epochs: 100_000
   trans_optimization_epochs: null
-  skill_optimization_epochs: 250
-  policy_optimization_mult: 3
-  max_path_length: 200
+  skill_optimization_epochs: 50
+  policy_optimization_mult: 10
+  max_path_length: 999
   transitions_before_training: 25_000
-  log_frequency: 50_000
+  log_frequency: 5_000
   eval_frequency: 200_000

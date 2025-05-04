@@ -622,7 +622,7 @@ class GaussianMLPIndependendInputStdModule(GaussianMLPBaseModule):
         
         self._logstd_network = MLPModule(input_dim = input_idx_std[1] - input_idx_std[0],
             output_dim=self._action_dim,
-            hidden_sizes=self._hidden_sizes,
+            hidden_sizes=[16, 16],
             hidden_nonlinearity=self._hidden_nonlinearity,
             hidden_w_init=self._hidden_w_init,
             hidden_b_init=self._hidden_b_init,

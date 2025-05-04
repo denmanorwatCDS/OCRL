@@ -12,6 +12,7 @@ from networks import pipeline
 from networks.distribution_networks import GaussianMLPIndependentStdModule, GaussianMLPIndependendInputStdModule, GaussianMLPTwoHeadedModule, GaussianMLPGlobalStdModule
 from networks.feature_extractors import slot_extractors, slot_poolers
 from utils.distributions.tanh import TanhNormal, PPOTanhNormal
+from torch.nn.init import orthogonal_
 from utils.weight_initializer.xavier_init import xavier_normal
 from utils.preprocessing.normalize_reward import NormalizeReward
 from RL.policies.policy import Policy
@@ -173,6 +174,16 @@ def fetch_extractor_and_pooler(extractor_config, pooler_config, channels = None,
         assert False, 'Unknown pooler'
     return extractor, pooler
 
+def fetch_init(name, gain = None):
+    if name == 'xavier':
+        if gain is None:
+            gain = 1.
+        return functools.partial(xavier_normal, gain = gain)
+    elif name == 'orthogonal':
+        if gain is None:
+            gain = math.sqrt(2)
+        return functools.partial(orthogonal_, gain = gain)
+
 
 def build_policy_net(env, policy_net_config):
     obs_dim, action_dim = env.spec.observation_space, env.spec.action_space.flat_dim
@@ -189,26 +200,30 @@ def build_policy_net(env, policy_net_config):
         policy_module = GaussianMLPTwoHeadedModule(input_dim = module_obs_dim, output_dim = action_dim, 
                                                hidden_sizes = policy_net_config.hidden_sizes, 
                                                layer_normalization = policy_net_config.layer_normalization,
-                                               hidden_nonlinearity = fetch_activation(policy_net_config.nonlinearity), 
+                                               hidden_nonlinearity = fetch_activation(policy_net_config.nonlinearity),
+                                               hidden_w_init = fetch_init(name = policy_net_config.hidden_w_init.name),
+                                               output_w_init = fetch_init(name = policy_net_config.output_w_init.name, 
+                                                                          gain = policy_net_config.output_w_init.std), 
                                                max_std = np.exp(policy_net_config.distribution.max_logstd) \
                                                if policy_net_config.distribution.max_logstd is not None else None,
                                                min_std = np.exp(policy_net_config.distribution.min_logstd) \
                                                if policy_net_config.distribution.min_logstd is not None else None,
                                                init_std = np.exp(policy_net_config.distribution.starting_logstd),
                                                std_parameterization = policy_net_config.distribution.std_parameterization,
-                                               normal_distribution_cls = fetch_dist_type(policy_net_config.distribution.type),
-                                               output_w_init = functools.partial(xavier_normal, gain=policy_net_config.distribution.output_gain))
+                                               normal_distribution_cls = fetch_dist_type(policy_net_config.distribution.type))
         
     elif policy_net_config.distribution.name == 'GlobalStd':
         policy_module = GaussianMLPGlobalStdModule(input_dim = module_obs_dim, output_dim = action_dim, 
                                                hidden_sizes = policy_net_config.hidden_sizes, 
                                                layer_normalization = policy_net_config.layer_normalization,
-                                               hidden_nonlinearity = fetch_activation(policy_net_config.nonlinearity), 
+                                               hidden_nonlinearity = fetch_activation(policy_net_config.nonlinearity),
+                                               hidden_w_init = fetch_init(name = policy_net_config.hidden_w_init.name),
+                                               output_w_init = fetch_init(name = policy_net_config.output_w_init.name, 
+                                                                          gain = policy_net_config.output_w_init.std),
                                                max_std = np.exp(policy_net_config.distribution.max_logstd),
                                                init_std = np.exp(policy_net_config.distribution.starting_logstd),
                                                std_parameterization = policy_net_config.distribution.std_parameterization,
-                                               normal_distribution_cls = fetch_dist_type(policy_net_config.distribution.type),
-                                               output_w_init = functools.partial(xavier_normal, gain=policy_net_config.distribution.output_gain))
+                                               normal_distribution_cls = fetch_dist_type(policy_net_config.distribution.type))
         
     elif policy_net_config.distribution.name == 'SkillStd':
         policy_module = GaussianMLPIndependendInputStdModule(input_idx_mean = [0, module_obs_dim], 
@@ -216,15 +231,17 @@ def build_policy_net(env, policy_net_config):
                                                              output_dim = action_dim,
                                                              hidden_sizes = policy_net_config.hidden_sizes, 
                                                              layer_normalization = policy_net_config.layer_normalization,
-                                                             hidden_nonlinearity = fetch_activation(policy_net_config.nonlinearity), 
+                                                             hidden_nonlinearity = fetch_activation(policy_net_config.nonlinearity),
+                                                             hidden_w_init = fetch_init(name = policy_net_config.hidden_w_init.name),
+                                                             output_w_init = fetch_init(name = policy_net_config.output_w_init.name, 
+                                                                          gain = policy_net_config.output_w_init.std),
                                                              max_std = np.exp(policy_net_config.distribution.max_logstd) \
                                                              if policy_net_config.distribution.max_logstd is not None else None,
                                                              min_std = np.exp(policy_net_config.distribution.min_logstd) \
                                                              if policy_net_config.distribution.min_logstd is not None else None,
                                                              init_std = np.exp(policy_net_config.distribution.starting_logstd),
                                                              std_parameterization = policy_net_config.distribution.std_parameterization,
-                                                             normal_distribution_cls = fetch_dist_type(policy_net_config.distribution.type),
-                                                             output_w_init = functools.partial(xavier_normal, gain=policy_net_config.distribution.output_gain))
+                                                             normal_distribution_cls = fetch_dist_type(policy_net_config.distribution.type))
         
     policy_module = pipeline.SkillObjectPipeline('obs', 'options', 'obj_idxs', 
                                                  slot_extractor = extractor, slot_pooler = pooler, 
@@ -308,10 +325,11 @@ def build_v_net(env, v_net_config):
     v = MLPModule(input_dim = module_obs_dim, output_dim = 1,
                   hidden_sizes = v_net_config.hidden_sizes,
                   hidden_nonlinearity = fetch_activation(v_net_config.nonlinearity),
-                  hidden_w_init = torch.nn.init.xavier_normal_,
+                  hidden_w_init = fetch_init(name = v_net_config.hidden_w_init.name),
                   hidden_b_init = torch.nn.init.zeros_,
                   output_nonlinearity = None,
-                  output_w_init = torch.nn.init.xavier_normal_,
+                  output_w_init = fetch_init(name = v_net_config.output_w_init.name,
+                                             gain = v_net_config.output_w_init.std),
                   output_b_init = torch.nn.init.zeros_,
                   layer_normalization = v_net_config.layer_normalization)
     
@@ -461,7 +479,7 @@ def run():
                   unit_length = config.skill.unit_length, device = config.globals.device, 
                   dual_reg = config.skill.dual_reg, dual_slack = config.skill.dual_slack, 
                   dual_dist = config.skill.dual_dist_name, 
-                  target_traj_encoder_coef = config.skill.target_traj_encoder_coef**(1/config.trainer_args.skill_optimization_epochs))
+                  target_traj_encoder_coef = config.skill.target_traj_encoder_coef)
         
     env.close()
     
@@ -651,6 +669,7 @@ def train_cycle(trainer_config, agent, skill_model, replay_buffer, rollout_buffe
                 policy_stats.save_iter(logs)
         
         if agent.on_policy:
+            skill_model._update_target_te()
             paths = replay_buffer.get_recent_paths()
             original_shapes = {'obs': paths[0]['observations'].shape, 'next_obs': paths[0]['next_observations'].shape,
                                'obj_idxs': paths[0]['agent_infos']['obj_idxs'].shape, 'options': paths[0]['agent_infos']['options'].shape,
@@ -685,21 +704,24 @@ def train_cycle(trainer_config, agent, skill_model, replay_buffer, rollout_buffe
                 paths[k]['rewards'] = rews[k]
 
             rollout_buffer.update_replay_buffer(paths)
-
-            for j in range(int(skill_optim_steps * trainer_config.policy_optimization_mult)):
-                batch = rollout_buffer.sample_transitions()
-                batch = prepare_batch(batch)
-                ppo_log = agent.optimize_op(batch)
-                if ppo_log is None:
-                    break
-                policy_stats.save_iter(ppo_log)
+            
+            j = 0
+            for _ in range(trainer_config.policy_optimization_mult):
+                for batch in rollout_buffer.next_batch():
+                    batch = prepare_batch(batch)
+                    ppo_log = agent.optimize_op(batch)
+                    if ppo_log is None:
+                        break
+                    policy_stats.save_iter(ppo_log)
+                    j += 1
             replay_buffer.delete_recent_paths()
             rollout_buffer.clear()
+            agent.reset_optimizers()
 
         if (prev_cur_step // trainer_config.log_frequency) < (cur_step // trainer_config.log_frequency):
             comet_logger.log_metrics(skill_stats.pop_statistics(), step = cur_step)
             comet_logger.log_metrics({**policy_stats.pop_statistics(), 
-                                      'last_iteration': i * trainer_config.policy_optimization_mult + j}, 
+                                      'last_iteration': j}, 
                                       step = cur_step)
         
         agent.eval()

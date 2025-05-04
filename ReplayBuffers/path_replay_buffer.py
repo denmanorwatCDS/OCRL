@@ -166,6 +166,12 @@ class PathBuffer:
             batch_size = self.batch_size
         idxs = np.random.choice(self._transitions_stored, batch_size)
         return self.fetch_transitions(idxs)
+    
+    def next_batch(self):
+        idxs = np.arange(self._transitions_stored)
+        np.random.shuffle(idxs)
+        for i in range(0, self._transitions_stored // self.batch_size, 1):
+            yield self.fetch_transitions(idxs[i * self.batch_size: (i + 1) * self.batch_size])
 
     def _next_path_segments(self, n_indices):
         """Compute where the next path should be stored.

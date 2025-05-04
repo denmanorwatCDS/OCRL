@@ -4,17 +4,29 @@ import numpy as np
 import torch
 import math
 import gym
+from ppo_test_wrappers.wrappers import NormalizeObservation, NormalizeReward
 
 from networks.distribution_networks import GaussianMLPTwoHeadedModule, GaussianMLPGlobalStdModule
 from networks.mlp import MLPModule
 from networks import pipeline
 from utils.weight_initializer.xavier_init import xavier_normal
+from torch.nn.init import orthogonal_
 from RL.policies.policy import Policy
 from ReplayBuffers.path_replay_buffer import PathBuffer
 from RL.algos.ppo import PPO
 from gym.vector import AsyncVectorEnv, SyncVectorEnv
 
 from main import fetch_config, set_seed, fetch_activation, fetch_dist_type, prepare_batch
+
+def fetch_init(name, gain = None):
+    if name == 'xavier':
+        if gain is None:
+            gain = 1.
+        return functools.partial(xavier_normal, gain = gain)
+    elif name == 'orthogonal':
+        if gain is None:
+            gain = math.sqrt(2)
+        return functools.partial(orthogonal_, gain = gain)
 
 def build_policy_net(env, policy_net_config):
     obs_dim, action_dim = env.observation_space, np.array(env.action_space.shape[0])
@@ -25,22 +37,26 @@ def build_policy_net(env, policy_net_config):
         policy_module = GaussianMLPTwoHeadedModule(input_dim = module_obs_dim, output_dim = action_dim, 
                                                hidden_sizes = policy_net_config.hidden_sizes, 
                                                layer_normalization = policy_net_config.layer_normalization,
-                                               hidden_nonlinearity = fetch_activation(policy_net_config.nonlinearity), 
+                                               hidden_nonlinearity = fetch_activation(policy_net_config.nonlinearity),
+                                               hidden_w_init = fetch_init(name = policy_net_config.hidden_w_init.name),
+                                               output_w_init = fetch_init(name = policy_net_config.output_w_init.name, 
+                                                                          gain = policy_net_config.output_w_init.std),
                                                std_parameterization = policy_net_config.distribution.std_parameterization,
                                                max_std = np.exp(policy_net_config.distribution.max_logstd),
                                                init_std = np.exp(policy_net_config.distribution.starting_logstd),
-                                               normal_distribution_cls = fetch_dist_type(policy_net_config.distribution.type),
-                                               output_w_init = functools.partial(xavier_normal, gain=1.))
+                                               normal_distribution_cls = fetch_dist_type(policy_net_config.distribution.type))
     elif policy_net_config.distribution.name == 'GlobalStd':
         policy_module = GaussianMLPGlobalStdModule(input_dim = module_obs_dim, output_dim = action_dim, 
                                                hidden_sizes = policy_net_config.hidden_sizes, 
                                                layer_normalization = policy_net_config.layer_normalization,
                                                hidden_nonlinearity = fetch_activation(policy_net_config.nonlinearity),
+                                               hidden_w_init = fetch_init(name = policy_net_config.hidden_w_init.name),
+                                               output_w_init = fetch_init(name = policy_net_config.output_w_init.name, 
+                                                                          gain = policy_net_config.output_w_init.std),
                                                std_parameterization = policy_net_config.distribution.std_parameterization,
                                                max_std = np.exp(policy_net_config.distribution.max_logstd),
                                                init_std = np.exp(policy_net_config.distribution.starting_logstd),
-                                               normal_distribution_cls = fetch_dist_type(policy_net_config.distribution.type),
-                                               output_w_init = functools.partial(xavier_normal, gain=1.))
+                                               normal_distribution_cls = fetch_dist_type(policy_net_config.distribution.type))
     policy_module = pipeline.DictPipeline(policy_module)
     return Policy(name = policy_net_config.name, module = policy_module)
 
@@ -53,10 +69,11 @@ def build_v_net(env, v_net_config):
     v = MLPModule(input_dim = module_obs_dim, output_dim = 1,
                   hidden_sizes = v_net_config.hidden_sizes,
                   hidden_nonlinearity = fetch_activation(v_net_config.nonlinearity),
-                  hidden_w_init = torch.nn.init.xavier_normal_,
+                  hidden_w_init = fetch_init(name = v_net_config.hidden_w_init.name),
                   hidden_b_init = torch.nn.init.zeros_,
                   output_nonlinearity = None,
-                  output_w_init = torch.nn.init.xavier_normal_,
+                  output_w_init = fetch_init(name = v_net_config.output_w_init.name,
+                                             gain = v_net_config.output_w_init.std),
                   output_b_init = torch.nn.init.zeros_,
                   layer_normalization = v_net_config.layer_normalization)
     v = pipeline.DictPipeline(v)
@@ -86,14 +103,16 @@ class MuJoCoWrapper(gym.Wrapper):
         self.cur_step = 0
         return obs.astype(np.float32)
 
-def make_env(seed):
-    env = gym.make('HalfCheetah-v3')
+def make_env(seed, gamma = 0.99, use_reward_wrapper = True):
+    env = gym.make('HalfCheetah-v2')
     env.seed(seed=seed)
+    env = NormalizeObservation(env)
+    env = gym.wrappers.TransformObservation(env, lambda obs: np.clip(obs, -10, 10))
     env = MuJoCoWrapper(env)
     return env
 
-def make_seeded_env(seed):
-    return make_env(seed)
+def make_seeded_env(seed, use_reward_wrapper = True):
+    return make_env(seed, use_reward_wrapper = use_reward_wrapper)
 
 def run():
     config = fetch_config()
@@ -143,6 +162,7 @@ def run():
                 make_env_fn = make_seeded_env, seed = config.globals.seed, comet_logger = exp)
     
 def train_cycle(trainer_config, agent, rollout_buffer, make_env_fn, seed, comet_logger):
+    agent.option_policy._force_use_mode_actions = False
     env = SyncVectorEnv([lambda: make_env_fn(seed = (seed + i)) for i in range(trainer_config.n_parallel)]) #, context='spawn')
     
     prev_cur_step, cur_step = 0, 0
@@ -150,27 +170,29 @@ def train_cycle(trainer_config, agent, rollout_buffer, make_env_fn, seed, comet_
         agent.eval()
         trajs = collect_trajectories(env = env, agent = agent, trajectories_qty = trainer_config.traj_batch_size, 
                             trajectories_length = trainer_config.max_path_length)
+        logs = {}
         for traj in trajs:
             cur_step += len(traj['observations'])
+            logs = {'Train reward': np.sum(traj['rewards'])}
         rollout_buffer.update_replay_buffer(trajs)
+        rollout_buffer.delete_recent_paths()
 
         agent.train()
         skill_optim_steps = trainer_config.skill_optimization_epochs if agent.on_policy \
             else trainer_config.trans_optimization_epochs
         
-        for _ in range(skill_optim_steps):
-            batch = rollout_buffer.sample_transitions()
-            batch = prepare_batch(batch)
-            logs = agent.optimize_op(batch)
+        for _ in range(trainer_config.policy_optimization_mult):
+            for batch in rollout_buffer.next_batch():
+                batch = prepare_batch(batch)
+                logs.update(agent.optimize_op(batch))
         rollout_buffer.clear()
         
         if (prev_cur_step // trainer_config.log_frequency) < (cur_step // trainer_config.log_frequency):
             comet_logger.log_metrics(logs, step = cur_step)
         
         agent.eval()
-        eval_env = make_seeded_env(1)
+        eval_env = make_seeded_env(1, use_reward_wrapper = False)
         if (prev_cur_step // trainer_config.eval_frequency) < (cur_step // trainer_config.eval_frequency):
-            agent.eval()
             agent.option_policy._force_use_mode_actions = True
             is_terminated, returns = [], []
             for val_episode in range(10):
@@ -197,7 +219,7 @@ def collect_trajectories(env, agent, trajectories_length, trajectories_qty = Non
         pseudoepisodes = math.ceil(trajectories_qty / len(env.env_fns))
     else:
         pseudoepisodes = trajectories_qty
-    generated_trajectories = [{} for i in range(trajectories_qty)]
+    generated_trajectories = [{} for i in range(pseudoepisodes * len(env.env_fns))]
     for pseudoepisode in range(pseudoepisodes):
         prev_obs = env.reset()
         prev_obs = np.transpose(prev_obs, [0, 3, 1, 2]) if len(prev_obs.shape) == 4 else prev_obs
@@ -239,12 +261,11 @@ def collect_trajectories(env, agent, trajectories_length, trajectories_qty = Non
         next_obs = {'obs': next_obs.reshape((-1,) + tuple(next_obs.shape[2:])).to(agent.device)}
         values = agent.critic(prev_obs).detach().cpu().numpy().astype(np.float32).reshape((trajectories_qty, -1))
         next_values = agent.critic(next_obs).detach().cpu().numpy().astype(np.float32).reshape((trajectories_qty, -1))
-        agent_info.update({'values': agent.critic(prev_obs).detach().cpu().numpy(),
-                           'next_values': agent.critic(next_obs).detach().cpu().numpy()})
         for i in range(len(generated_trajectories)):
             generated_trajectories[i]['agent_infos']['values'] = values[i]
             generated_trajectories[i]['agent_infos']['next_values'] = next_values[i]
     return generated_trajectories
+
 
 def update_traj_with_info(target_dict, infos, info_dict_name):
     if info_dict_name not in target_dict:
@@ -270,6 +291,7 @@ def update_traj_with_info(target_dict, infos, info_dict_name):
                                                          np.expand_dims(infos[key], axis = 0), axis = 0)
             else:
                 target_dict[info_dict_name][key] = np.append(target_dict[info_dict_name][key], infos[key])
+
 
 def update_traj_with_array(target_dict, array, array_key):
     if array_key not in target_dict.keys():

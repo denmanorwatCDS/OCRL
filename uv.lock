@@ -239,7 +239,7 @@ wheels = [
 
 [[package]]
 name = "comet-ml"
-version = "3.47.1"
+version = "3.47.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "dulwich" },
@@ -258,9 +258,9 @@ dependencies = [
     { name = "wrapt" },
     { name = "wurlitzer" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/74/7b/f295dfbb92a0cf2aa1abd4a9ec9a45a8db48f2a6873c7a14a7d5a3cb475d/comet_ml-3.47.1.tar.gz", hash = "sha256:ce2e6b87b65dcebdefba21ec62a17b503da94293f36850d96c4fd1ac5c6b911e", size = 516839 }
+sdist = { url = "https://files.pythonhosted.org/packages/53/9e/c9667502b1ba1ad78199edcf81c8fcf898e8600a321f0372cdc5580bf02f/comet_ml-3.47.2.tar.gz", hash = "sha256:f0162626b6bedd8d8f76e2f6f0a08d9bafabb93cc6208195639c2b0f3d966038", size = 517281 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/85/aa/dfdb350b0c0bbb459c49c6cad79c3de1fc19000221cf87a381ca8ae83cc2/comet_ml-3.47.1-py3-none-any.whl", hash = "sha256:e5fa06fe318bbaefc58770a82e27a045b1f40cb5b137ce335400ddea97ef1032", size = 697148 },
+    { url = "https://files.pythonhosted.org/packages/7e/9e/d3d52870d81a4ba58f033f1c45957291c11ecafbf980299f92a3bc4c1c9c/comet_ml-3.47.2-py3-none-any.whl", hash = "sha256:123f02dd90b626783bfcbfb2a6e26c93425d1f1504e05181e9549c401493f2c8", size = 698095 },
 ]
 
 [[package]]
@@ -528,6 +528,15 @@ wheels = [
 ]
 
 [[package]]
+name = "docstring-parser"
+version = "0.16"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/08/12/9c22a58c0b1e29271051222d8906257616da84135af9ed167c9e28f85cb3/docstring_parser-0.16.tar.gz", hash = "sha256:538beabd0af1e2db0146b6bd3caa526c35a34d61af9fd2887f3a8a27a739aa6e", size = 26565 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d5/7c/e9fcff7623954d86bdc17782036cbf715ecab1bec4847c008557affe1ca8/docstring_parser-0.16-py3-none-any.whl", hash = "sha256:bf0a1387354d3691d102edef7ec124f219ef639982d096e26e3b60aeffa90637", size = 36533 },
+]
+
+[[package]]
 name = "dulwich"
 version = "0.22.7"
 source = { registry = "https://pypi.org/simple" }
@@ -577,6 +586,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/f5/39/2afc6c2def2b8da2a6c8213975b5900e0c5ad6ec3fc9ccae256c3b6fbc3d/dulwich-0.22.7-pp39-pypy39_pp73-manylinux_2_5_i686.manylinux1_i686.manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:753eec461434f0ccbe0956ec825250e12230e8f1b365c8be1604386d94c2d8d0", size = 1029734 },
     { url = "https://files.pythonhosted.org/packages/33/3f/85c6c96c8e1b798aa9997dd049e3dee3c9cbc596fd3552232e045270aede/dulwich-0.22.7-pp39-pypy39_pp73-win_amd64.whl", hash = "sha256:7649f0c9b4760d72768805155e66579761f282fdca123e351019c85efce811eb", size = 603454 },
     { url = "https://files.pythonhosted.org/packages/3b/d3/375c175ffdf4e0adf1cac737f79cbe1abe933862a3e54796cdba41fa4fd3/dulwich-0.22.7-py3-none-any.whl", hash = "sha256:10c5ee20430714ea6a79dde22c1f77078848930d27021aa810204738bc175e95", size = 265745 },
+]
+
+[[package]]
+name = "eval-type-backport"
+version = "0.2.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/30/ea/8b0ac4469d4c347c6a385ff09dc3c048c2d021696664e26c7ee6791631b5/eval_type_backport-0.2.2.tar.gz", hash = "sha256:f0576b4cf01ebb5bd358d02314d31846af5e07678387486e2c798af0e7d849c1", size = 9079 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ce/31/55cd413eaccd39125368be33c46de24a1f639f2e12349b0361b4678f3915/eval_type_backport-0.2.2-py3-none-any.whl", hash = "sha256:cb6ad7c393517f476f96d456d0412ea80f0a8cf96f6892834cd9340149111b0a", size = 5830 },
 ]
 
 [[package]]
@@ -1311,12 +1329,13 @@ dependencies = [
     { name = "scipy" },
     { name = "swig" },
     { name = "torch" },
+    { name = "tyro" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "akro", specifier = "==0.0.8" },
-    { name = "comet-ml", specifier = "==3.47.1" },
+    { name = "comet-ml", specifier = "==3.47.2" },
     { name = "cython", specifier = "==0.29.35" },
     { name = "dm-control", specifier = "==1.0.5" },
     { name = "dm-env", specifier = "==1.5" },
@@ -1340,6 +1359,7 @@ requires-dist = [
     { name = "scipy", specifier = "==1.10.1" },
     { name = "swig", specifier = "==3.0.12" },
     { name = "torch", specifier = "==2.0.1" },
+    { name = "tyro", specifier = "==0.8.5" },
 ]
 
 [[package]]
@@ -2253,6 +2273,15 @@ wheels = [
 ]
 
 [[package]]
+name = "shtab"
+version = "1.7.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/5a/3e/837067b970c1d2ffa936c72f384a63fdec4e186b74da781e921354a94024/shtab-1.7.2.tar.gz", hash = "sha256:8c16673ade76a2d42417f03e57acf239bfb5968e842204c17990cae357d07d6f", size = 45751 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/74/03/3271b7bb470fbab4adf5bd30b0d32143909d96f3608d815b447357f47f2b/shtab-1.7.2-py3-none-any.whl", hash = "sha256:858a5805f6c137bb0cda4f282d27d08fd44ca487ab4a6a36d2a400263cd0b5c1", size = 14214 },
+]
+
+[[package]]
 name = "simplejson"
 version = "3.20.1"
 source = { registry = "https://pypi.org/simple" }
@@ -2496,6 +2525,23 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/df/db/f35a00659bc03fec321ba8bce9420de607a1d37f8342eee1863174c69557/typing_extensions-4.12.2.tar.gz", hash = "sha256:1a7ead55c7e559dd4dee8856e3a88b41225abfe1ce8df57b7c13915fe121ffb8", size = 85321 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/26/9f/ad63fc0248c5379346306f8668cda6e2e2e9c95e01216d2b8ffd9ff037d0/typing_extensions-4.12.2-py3-none-any.whl", hash = "sha256:04e5ca0351e0f3f85c6853954072df659d0d13fac324d0072316b67d7794700d", size = 37438 },
+]
+
+[[package]]
+name = "tyro"
+version = "0.8.5"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "colorama", marker = "sys_platform == 'win32'" },
+    { name = "docstring-parser" },
+    { name = "eval-type-backport", marker = "python_full_version < '3.10'" },
+    { name = "rich" },
+    { name = "shtab" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c2/05/a6d4429c5f82c760b04d545b3e4cac86cf9f1e62313cde7fd46f3da1d740/tyro-0.8.5.tar.gz", hash = "sha256:6523429c4ef6f7a08654534cb1c90a809f4d78c42bb1885f7e29bb55ce39fc6b", size = 131198 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f7/ea/c8967a64769ec465a2d49bf81e1e135999741704a36993b6b51465ce8503/tyro-0.8.5-py3-none-any.whl", hash = "sha256:19965ee354dea7efe5086b2b54e24a6a1908f5b5bbe2550559772a73f4f906d7", size = 103421 },
 ]
 
 [[package]]
