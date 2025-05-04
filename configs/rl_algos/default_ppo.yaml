@@ -116,7 +116,7 @@ trainer_args:
   trans_optimization_epochs: null
   skill_optimization_epochs: 50
   policy_optimization_mult: 10
-  max_path_length: 2048
+  max_path_length: 999
   transitions_before_training: 25_000
   log_frequency: 5_000
   eval_frequency: 200_000

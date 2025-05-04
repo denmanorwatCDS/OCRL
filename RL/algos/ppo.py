@@ -72,8 +72,7 @@ class PPO(nn.Module):
         for key in optimizer_keys:
             self._optimizers[key].zero_grad()
         loss.backward()
-        clip_grad_norm_(self.option_policy.parameters(), self.max_grad_norm)
-        clip_grad_norm_(self.critic.parameters(), self.max_grad_norm)
+        clip_grad_norm_(list(self.option_policy.parameters()) + list(self.critic.parameters()), self.max_grad_norm)
         for key in optimizer_keys:
             self._optimizers[key].step()
 
@@ -124,18 +123,18 @@ class PPO(nn.Module):
         #option, obj_idx = batch['options'], batch['obj_idxs']
         opt_input = {'obs': obs}
         #opt_input.update({'options': option, 'obj_idxs': obj_idx})
-        new_values = self.critic(opt_input)
+        new_values = torch.squeeze(self.critic(opt_input))
         returns, values = batch['returns'], batch['values']
         if self.clip_vloss:
             vf_loss_unclipped = (new_values - returns)**2
             new_values_clipped = values + torch.clamp(new_values - values, -self.clip_coef, self.clip_coef)
             vf_loss_clipped = (new_values_clipped - returns)**2
             vf_loss_max = torch.max(vf_loss_unclipped, vf_loss_clipped)
-            v_loss = self.vf_coef * vf_loss_max.mean()
+            v_loss = 0.5 * vf_loss_max.mean()
         else:
-            v_loss = self.vf_coef * ((new_values - returns)**2).mean()
+            v_loss = 0.5 * ((new_values - returns)**2).mean()
         
-        return {'value_loss': 0.5 * v_loss, 
+        return {'value_loss': self.vf_coef * v_loss, 
                 'return_mean': returns.mean(),
                 'returns_std': returns.std()}
     

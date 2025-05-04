@@ -25,6 +25,8 @@ import math
 from networks import pipeline
 from RL.policies.policy import Policy
 from networks.mlp import MLPModule
+from RL.algos.ppo import PPO
+from ReplayBuffers.path_replay_buffer import PathBuffer
 
 
 @dataclass
@@ -312,9 +314,19 @@ if __name__ == "__main__":
 
     actor = build_policy_net(envs, config.rl_algo.policy).to(device)
     critic = build_v_net(envs, config.rl_algo.value).to(device)
-    optimizer = optim.Adam([{'params': actor.get_policy_parameters_without_std(), 'lr': config.rl_algo.policy.lr, 'eps': 1e-05},
-                            {'params': actor.get_policy_std_parameters(), 'lr': config.rl_algo.policy.std_lr, 'eps': 1e-05},
-                            {'params': critic.parameters(), 'lr': config.rl_algo.value.lr, 'eps': 1e-05}])
+    policy_optimizer = optim.Adam([{'params': actor.get_policy_parameters_without_std(), 'lr': config.rl_algo.policy.lr, 'eps': 1e-05},
+                                   {'params': actor.get_policy_std_parameters(), 'lr': config.rl_algo.policy.std_lr, 'eps': 1e-05}])
+    vf_optimizer = optim.Adam([{'params': critic.parameters(), 'lr': config.rl_algo.value.lr, 'eps': 1e-05}])
+
+    rl_algo = PPO(vf = critic, clip_coef = config.rl_algo.clip_coef, clip_vloss = config.rl_algo.clip_vloss,
+                  ent_coef = config.rl_algo.ent_coef, vf_coef = config.rl_algo.vf_coef, normalize_advantage = config.rl_algo.norm_adv,
+                  max_grad_norm = config.rl_algo.max_grad_norm, target_kl = config.rl_algo.target_kl, option_policy = actor,
+                  optimizers = {'vf': vf_optimizer, 'option_policy': policy_optimizer}, device = device)
+    
+    rollout_buffer = PathBuffer(capacity_in_transitions = int(config.replay_buffer.policy.max_transitions), 
+                                    batch_size = config.replay_buffer.policy.batch_size, pixel_keys = [], 
+                                    discount = config.replay_buffer.discount, gae_lambda = config.replay_buffer.gae_lambda,
+                                    on_policy = rl_algo.on_policy)
 
     # ALGO Logic: Storage setup
     obs = torch.zeros((config.trainer_args.max_path_length, 1) + envs.single_observation_space.shape).to(device)
@@ -332,6 +344,7 @@ if __name__ == "__main__":
     next_obs = torch.Tensor(next_obs).to(device)
     next_done = torch.zeros(1).to(device)
 
+    generated_trajectories = [{} for i in range(trajectories_qty)]
     for iteration in range(1, config.trainer_args.n_epochs + 1):
         # TODO No annealing!!!
 
@@ -394,63 +407,22 @@ if __name__ == "__main__":
             for start in range(0, config.trainer_args.max_path_length, config.replay_buffer.policy.batch_size):
                 end = start + config.replay_buffer.policy.batch_size
                 mb_inds = b_inds[start:end]
-
-                newlogprob, entropy, _ = actor.get_logprob_and_entropy({'obs': b_obs[mb_inds]}, 
-                                                                     b_actions[mb_inds], b_pre_tanh_values[mb_inds])
-                newvalue = critic({'obs': b_obs[mb_inds]})
-                logratio = newlogprob - b_logprobs[mb_inds]
-                ratio = logratio.exp()
-
-                with torch.no_grad():
-                    # calculate approx_kl http://joschu.net/blog/kl-approx.html
-                    old_approx_kl = (-logratio).mean()
-                    approx_kl = ((ratio - 1) - logratio).mean()
-                    clipfracs += [((ratio - 1.0).abs() > config.rl_algo.clip_coef).float().mean().item()]
-
-                mb_advantages = b_advantages[mb_inds]
-                if config.rl_algo.norm_adv:
-                    mb_advantages = (mb_advantages - mb_advantages.mean()) / (mb_advantages.std() + 1e-8)
-
-                # Policy loss
-                pg_loss1 = -mb_advantages * ratio
-                pg_loss2 = -mb_advantages * torch.clamp(ratio, 1 - config.rl_algo.clip_coef, 1 + config.rl_algo.clip_coef)
-                pg_loss = torch.max(pg_loss1, pg_loss2).mean()
-
-                # Value loss
-                newvalue = newvalue.view(-1)
-                if config.rl_algo.clip_vloss:
-                    v_loss_unclipped = (newvalue - b_returns[mb_inds]) ** 2
-                    v_clipped = b_values[mb_inds] + torch.clamp(
-                        newvalue - b_values[mb_inds],
-                        -config.rl_algo.clip_coef,
-                        config.rl_algo.clip_coef,
-                    )
-                    v_loss_clipped = (v_clipped - b_returns[mb_inds]) ** 2
-                    v_loss_max = torch.max(v_loss_unclipped, v_loss_clipped)
-                    v_loss = 0.5 * v_loss_max.mean()
-                else:
-                    v_loss = 0.5 * ((newvalue - b_returns[mb_inds]) ** 2).mean()
-
-                entropy_loss = entropy.mean()
-                loss = pg_loss - config.rl_algo.ent_coef * entropy_loss + v_loss * config.rl_algo.vf_coef
-
-                optimizer.zero_grad()
-                loss.backward()
-                nn.utils.clip_grad_norm_(actor.parameters(), config.rl_algo.max_grad_norm)
-                nn.utils.clip_grad_norm_(critic.parameters(), config.rl_algo.max_grad_norm)
-                optimizer.step()
+                batch = {'obs': b_obs[mb_inds], 'actions': b_actions[mb_inds], 'pre_tanh_actions': b_pre_tanh_values[mb_inds],
+                         'log_probs': b_logprobs[mb_inds], 'advantages': b_advantages[mb_inds], 'returns': b_returns[mb_inds],
+                         'values': b_values[mb_inds]}
+                logs = rl_algo.optimize_op(batch)
+                clipfracs.append(logs['clip_fractions'])
 
         y_pred, y_true = b_values.cpu().numpy(), b_returns.cpu().numpy()
         var_y = np.var(y_true)
         explained_var = np.nan if var_y == 0 else 1 - np.var(y_true - y_pred) / var_y
 
         # TRY NOT TO MODIFY: record rewards for plotting purposes
-        exp.log_metrics({"charts/learning_rate": optimizer.param_groups[0]["lr"],
-                         "losses/value_loss": v_loss.item(),
-                         "losses/policy_loss": pg_loss.item(),
-                         "losses/entropy": entropy_loss.item(),
-                         "losses/old_approx_kl": old_approx_kl.item(),
-                         "losses/approx_kl": approx_kl.item(),
+        exp.log_metrics({"losses/value_loss": logs['value_loss'].item(),
+                         "losses/policy_loss": logs['policy_gradient_loss'].item(),
+                         "losses/entropy": logs['entropy_loss'].item(),
+                         "losses/old_approx_kl": logs['old_approx_kl'].item(),
+                         "losses/approx_kl": logs['approx_kl'].item(),
                          "losses/clipfrac": np.mean(clipfracs),
                          "losses/explained_variance": explained_var}, step = global_step)
 
