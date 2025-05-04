@@ -55,3 +55,9 @@ class DictPipeline(nn.Module):
     
     def forward_mode(self, inputs):
         return self.downstream_model.forward_mode(inputs['obs'])
+    
+    def get_policy_parameters_without_std(self):
+        return self.downstream_model.get_parameters_without_std()
+
+    def get_policy_std_parameters(self):
+        return self.downstream_model.get_std_parameters()

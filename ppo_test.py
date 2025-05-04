@@ -126,7 +126,7 @@ def run():
         torch.set_num_threads(config.globals.n_thread)
 
     set_seed(config.globals.seed)
-    env = make_env(42)
+    env = make_env(config.globals.seed)
 
     policy = build_policy_net(env, policy_net_config = config.rl_algo.policy)
 

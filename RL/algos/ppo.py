@@ -64,9 +64,8 @@ class PPO(nn.Module):
         logs = self.update_loss_act(batch)
         if logs is None:
             return logs
-        self._gradient_descent(logs['actor_loss'], ['option_policy'])
         logs.update(self.update_loss_vf(batch))
-        self._gradient_descent(logs['value_loss'], ['vf'])
+        self._gradient_descent(logs['value_loss'] + logs['actor_loss'], ['option_policy', 'vf'])
         return logs
 
     def _gradient_descent(self, loss, optimizer_keys):
@@ -77,7 +76,6 @@ class PPO(nn.Module):
         clip_grad_norm_(self.critic.parameters(), self.max_grad_norm)
         for key in optimizer_keys:
             self._optimizers[key].step()
-            self._optimizers[key].zero_grad()
 
     def update_loss_act(self, batch):
         # TODO uncomment lines
@@ -127,17 +125,17 @@ class PPO(nn.Module):
         opt_input = {'obs': obs}
         #opt_input.update({'options': option, 'obj_idxs': obj_idx})
         new_values = self.critic(opt_input)
-        returns = batch['returns']
+        returns, values = batch['returns'], batch['values']
         if self.clip_vloss:
             vf_loss_unclipped = (new_values - returns)**2
-            new_values_clipped = returns + torch.clamp(new_values - returns, -self.clip_vloss, self.clip_vloss)
+            new_values_clipped = values + torch.clamp(new_values - values, -self.clip_coef, self.clip_coef)
             vf_loss_clipped = (new_values_clipped - returns)**2
             vf_loss_max = torch.max(vf_loss_unclipped, vf_loss_clipped)
             v_loss = self.vf_coef * vf_loss_max.mean()
         else:
-            v_loss = ((new_values - returns)**2).mean()
+            v_loss = self.vf_coef * ((new_values - returns)**2).mean()
         
-        return {'value_loss': v_loss, 
+        return {'value_loss': 0.5 * v_loss, 
                 'return_mean': returns.mean(),
                 'returns_std': returns.std()}
     

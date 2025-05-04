@@ -2,7 +2,6 @@
 import os
 import random
 import time
-import tyro
 import argparse
 import omegaconf
 import pathlib
@@ -154,16 +153,17 @@ def fetch_init(name, gain = None):
 
 
 def build_policy_net(env, policy_net_config):
-    obs_dim, action_dim = env.spec.observation_space, env.spec.action_space.flat_dim
+    obs_dim, action_dim = env.observation_space, env.action_space
     if len(obs_dim.shape) == 3:
         channels, obs_size = obs_dim.shape[2], obs_dim.shape[0:2]
     else:
-        obs_dim = obs_dim.flat_dim
+        obs_dim = np.array(obs_dim.shape[1])
+        action_dim = np.array(action_dim[0].shape[0])
         channels, obs_size = None, obs_dim
 
     extractor, pooler = fetch_extractor_and_pooler(policy_net_config.slot_extractor, policy_net_config.slot_pooler,
                                                    channels = channels, obs_size = obs_size)
-    module_obs_dim = pooler.outp_dim + policy_net_config.dim_option
+    module_obs_dim = pooler.outp_dim
     if policy_net_config.distribution.name == 'TwoHeaded':
         policy_module = GaussianMLPTwoHeadedModule(input_dim = module_obs_dim, output_dim = action_dim, 
                                                hidden_sizes = policy_net_config.hidden_sizes, 
@@ -180,6 +180,7 @@ def build_policy_net(env, policy_net_config):
                                                std_parameterization = policy_net_config.distribution.std_parameterization,
                                                normal_distribution_cls = fetch_dist_type(policy_net_config.distribution.type))
         
+        
     elif policy_net_config.distribution.name == 'GlobalStd':
         policy_module = GaussianMLPGlobalStdModule(input_dim = module_obs_dim, output_dim = action_dim, 
                                                hidden_sizes = policy_net_config.hidden_sizes, 
@@ -193,6 +194,7 @@ def build_policy_net(env, policy_net_config):
                                                std_parameterization = policy_net_config.distribution.std_parameterization,
                                                normal_distribution_cls = fetch_dist_type(policy_net_config.distribution.type))
         
+
     elif policy_net_config.distribution.name == 'SkillStd':
         policy_module = GaussianMLPIndependendInputStdModule(input_idx_mean = [0, module_obs_dim], 
                                                              input_idx_std = [pooler.outp_dim, pooler.outp_dim + policy_net_config.dim_option],
@@ -211,23 +213,21 @@ def build_policy_net(env, policy_net_config):
                                                              std_parameterization = policy_net_config.distribution.std_parameterization,
                                                              normal_distribution_cls = fetch_dist_type(policy_net_config.distribution.type))
         
-    policy_module = pipeline.SkillObjectPipeline('obs', 'options', 'obj_idxs', 
-                                                 slot_extractor = extractor, slot_pooler = pooler, 
-                                                 downstream_model = policy_module, downstream_input_keys = ['obs', 'options'])
+    policy_module = pipeline.DictPipeline(policy_module)
     return Policy(name = policy_net_config.name, module = policy_module)
 
 
 def build_v_net(env, v_net_config):
-    obs_dim = env.spec.observation_space
+    obs_dim = env.observation_space
     if len(obs_dim.shape) == 3:
         channels, obs_size = obs_dim.shape[2], obs_dim.shape[0:2]
     else:
-        obs_dim = obs_dim.flat_dim
+        obs_dim = np.array(obs_dim.shape[1])
         channels, obs_size = None, obs_dim
 
     extractor, pooler = fetch_extractor_and_pooler(v_net_config.slot_extractor, v_net_config.slot_pooler,
                                                    channels = channels, obs_size = obs_size)
-    module_obs_dim = pooler.outp_dim + v_net_config.dim_option
+    module_obs_dim = pooler.outp_dim
 
     v = MLPModule(input_dim = module_obs_dim, output_dim = 1,
                   hidden_sizes = v_net_config.hidden_sizes,
@@ -240,9 +240,7 @@ def build_v_net(env, v_net_config):
                   output_b_init = torch.nn.init.zeros_,
                   layer_normalization = v_net_config.layer_normalization)
     
-    v = pipeline.SkillObjectPipeline('obs', 'options', 'obj_idxs', 
-                                     slot_extractor = extractor, slot_pooler = pooler, 
-                                     downstream_model = v, downstream_input_keys = ['obs', 'options'])
+    v = pipeline.DictPipeline(v)
     return v
 
 
@@ -295,69 +293,65 @@ def fetch_config():
 
 if __name__ == "__main__":
     config = fetch_config()
-    args.batch_size = int(args.num_envs * args.num_steps)
-    args.minibatch_size = int(args.batch_size // args.num_minibatches)
-    args.num_iterations = args.total_timesteps // args.batch_size
-    run_name = f"{args.env_id}__{args.exp_name}__{args.seed}__{int(time.time())}"
-    if args.track:
-        import comet_ml
-
-        exp = comet_ml.start(project_name = 'PPO_cleanrl')
+    import comet_ml
+    exp = comet_ml.start(project_name = 'PPO_cleanrl')
 
     # TRY NOT TO MODIFY: seeding
-    random.seed(args.seed)
-    np.random.seed(args.seed)
-    torch.manual_seed(args.seed)
-    torch.backends.cudnn.deterministic = args.torch_deterministic
+    random.seed(config.globals.seed)
+    np.random.seed(config.globals.seed)
+    torch.manual_seed(config.globals.seed)
+    torch.backends.cudnn.deterministic = False
 
-    device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
+    device = torch.device("cuda")
 
     # env setup
     envs = gym.vector.SyncVectorEnv(
-        [make_env(args.env_id, i, args.capture_video, run_name, args.gamma) for i in range(args.num_envs)]
+        [make_env("HalfCheetah-v2", i, False, None, config.replay_buffer.discount) for i in range(1)]
     )
     assert isinstance(envs.single_action_space, gym.spaces.Box), "only continuous action space is supported"
 
-    actor = build_policy_net()
-    critic = build_v_net()
-    optimizer = optim.Adam(agent.parameters(), lr=args.learning_rate, eps=1e-5)
+    actor = build_policy_net(envs, config.rl_algo.policy).to(device)
+    critic = build_v_net(envs, config.rl_algo.value).to(device)
+    optimizer = optim.Adam([{'params': actor.get_policy_parameters_without_std(), 'lr': config.rl_algo.policy.lr, 'eps': 1e-05},
+                            {'params': actor.get_policy_std_parameters(), 'lr': config.rl_algo.policy.std_lr, 'eps': 1e-05},
+                            {'params': critic.parameters(), 'lr': config.rl_algo.value.lr, 'eps': 1e-05}])
 
     # ALGO Logic: Storage setup
-    obs = torch.zeros((args.num_steps, args.num_envs) + envs.single_observation_space.shape).to(device)
-    actions = torch.zeros((args.num_steps, args.num_envs) + envs.single_action_space.shape).to(device)
-    logprobs = torch.zeros((args.num_steps, args.num_envs)).to(device)
-    rewards = torch.zeros((args.num_steps, args.num_envs)).to(device)
-    dones = torch.zeros((args.num_steps, args.num_envs)).to(device)
-    values = torch.zeros((args.num_steps, args.num_envs)).to(device)
+    obs = torch.zeros((config.trainer_args.max_path_length, 1) + envs.single_observation_space.shape).to(device)
+    actions = torch.zeros((config.trainer_args.max_path_length, 1) + envs.single_action_space.shape).to(device)
+    pre_tanh_values = torch.zeros((config.trainer_args.max_path_length,) + envs.single_action_space.shape).to(device)
+    logprobs = torch.zeros((config.trainer_args.max_path_length, 1)).to(device)
+    rewards = torch.zeros((config.trainer_args.max_path_length, 1)).to(device)
+    dones = torch.zeros((config.trainer_args.max_path_length, 1)).to(device)
+    values = torch.zeros((config.trainer_args.max_path_length, 1)).to(device)
 
     # TRY NOT TO MODIFY: start the game
     global_step = 0
     start_time = time.time()
     next_obs = envs.reset()
     next_obs = torch.Tensor(next_obs).to(device)
-    next_done = torch.zeros(args.num_envs).to(device)
+    next_done = torch.zeros(1).to(device)
 
-    for iteration in range(1, args.num_iterations + 1):
-        # Annealing the rate if instructed to do so.
-        if args.anneal_lr:
-            frac = 1.0 - (iteration - 1.0) / args.num_iterations
-            lrnow = frac * args.learning_rate
-            optimizer.param_groups[0]["lr"] = lrnow
+    for iteration in range(1, config.trainer_args.n_epochs + 1):
+        # TODO No annealing!!!
 
-        for step in range(0, args.num_steps):
-            global_step += args.num_envs
+        for step in range(0, config.trainer_args.max_path_length):
+            global_step += 1
             obs[step] = next_obs
             dones[step] = next_done
 
             # ALGO LOGIC: action logic
             with torch.no_grad():
-                action, logprob, _, value = agent.get_action_and_value(next_obs)
+                action, info = actor.get_actions({'obs': next_obs})
+                logprob, pre_tanh_value = info['log_prob'], info['pre_tanh_value']
+                value = critic({'obs': next_obs})
                 values[step] = value.flatten()
-            actions[step] = action
-            logprobs[step] = logprob
+            actions[step] = torch.from_numpy(action)
+            logprobs[step] = torch.from_numpy(logprob)
+            pre_tanh_values[step] = torch.from_numpy(pre_tanh_value)
 
             # TRY NOT TO MODIFY: execute the game and log data.
-            next_obs, reward, done, infos = envs.step(action.cpu().numpy())
+            next_obs, reward, done, infos = envs.step(action)
             next_done = done
             rewards[step] = torch.tensor(reward).to(device).view(-1)
             next_obs, next_done = torch.Tensor(next_obs).to(device), torch.Tensor(next_done).to(device)
@@ -369,38 +363,41 @@ if __name__ == "__main__":
 
         # bootstrap value if not done
         with torch.no_grad():
-            next_value = agent.get_value(next_obs).reshape(1, -1)
+            next_value = critic({'obs': next_obs}).reshape(1, -1)
             advantages = torch.zeros_like(rewards).to(device)
             lastgaelam = 0
-            for t in reversed(range(args.num_steps)):
-                if t == args.num_steps - 1:
+            for t in reversed(range(config.trainer_args.max_path_length)):
+                if t == config.trainer_args.max_path_length - 1:
                     nextnonterminal = 1.0 - next_done
                     nextvalues = next_value
                 else:
                     nextnonterminal = 1.0 - dones[t + 1]
                     nextvalues = values[t + 1]
-                delta = rewards[t] + args.gamma * nextvalues * nextnonterminal - values[t]
-                advantages[t] = lastgaelam = delta + args.gamma * args.gae_lambda * nextnonterminal * lastgaelam
+                delta = rewards[t] + config.replay_buffer.discount * nextvalues * nextnonterminal - values[t]
+                advantages[t] = lastgaelam = delta + config.replay_buffer.discount * config.replay_buffer.gae_lambda * nextnonterminal * lastgaelam
             returns = advantages + values
 
         # flatten the batch
         b_obs = obs.reshape((-1,) + envs.single_observation_space.shape)
         b_logprobs = logprobs.reshape(-1)
+        b_pre_tanh_values = pre_tanh_values.reshape((-1,) + envs.single_action_space.shape)
         b_actions = actions.reshape((-1,) + envs.single_action_space.shape)
         b_advantages = advantages.reshape(-1)
         b_returns = returns.reshape(-1)
         b_values = values.reshape(-1)
 
         # Optimizing the policy and value network
-        b_inds = np.arange(args.batch_size)
+        b_inds = np.arange(config.trainer_args.max_path_length)
         clipfracs = []
-        for epoch in range(args.update_epochs):
+        for epoch in range(config.trainer_args.policy_optimization_mult):
             np.random.shuffle(b_inds)
-            for start in range(0, args.batch_size, args.minibatch_size):
-                end = start + args.minibatch_size
+            for start in range(0, config.trainer_args.max_path_length, config.replay_buffer.policy.batch_size):
+                end = start + config.replay_buffer.policy.batch_size
                 mb_inds = b_inds[start:end]
 
-                _, newlogprob, entropy, newvalue = agent.get_action_and_value(b_obs[mb_inds], b_actions[mb_inds])
+                newlogprob, entropy, _ = actor.get_logprob_and_entropy({'obs': b_obs[mb_inds]}, 
+                                                                     b_actions[mb_inds], b_pre_tanh_values[mb_inds])
+                newvalue = critic({'obs': b_obs[mb_inds]})
                 logratio = newlogprob - b_logprobs[mb_inds]
                 ratio = logratio.exp()
 
@@ -408,25 +405,25 @@ if __name__ == "__main__":
                     # calculate approx_kl http://joschu.net/blog/kl-approx.html
                     old_approx_kl = (-logratio).mean()
                     approx_kl = ((ratio - 1) - logratio).mean()
-                    clipfracs += [((ratio - 1.0).abs() > args.clip_coef).float().mean().item()]
+                    clipfracs += [((ratio - 1.0).abs() > config.rl_algo.clip_coef).float().mean().item()]
 
                 mb_advantages = b_advantages[mb_inds]
-                if args.norm_adv:
+                if config.rl_algo.norm_adv:
                     mb_advantages = (mb_advantages - mb_advantages.mean()) / (mb_advantages.std() + 1e-8)
 
                 # Policy loss
                 pg_loss1 = -mb_advantages * ratio
-                pg_loss2 = -mb_advantages * torch.clamp(ratio, 1 - args.clip_coef, 1 + args.clip_coef)
+                pg_loss2 = -mb_advantages * torch.clamp(ratio, 1 - config.rl_algo.clip_coef, 1 + config.rl_algo.clip_coef)
                 pg_loss = torch.max(pg_loss1, pg_loss2).mean()
 
                 # Value loss
                 newvalue = newvalue.view(-1)
-                if args.clip_vloss:
+                if config.rl_algo.clip_vloss:
                     v_loss_unclipped = (newvalue - b_returns[mb_inds]) ** 2
                     v_clipped = b_values[mb_inds] + torch.clamp(
                         newvalue - b_values[mb_inds],
-                        -args.clip_coef,
-                        args.clip_coef,
+                        -config.rl_algo.clip_coef,
+                        config.rl_algo.clip_coef,
                     )
                     v_loss_clipped = (v_clipped - b_returns[mb_inds]) ** 2
                     v_loss_max = torch.max(v_loss_unclipped, v_loss_clipped)
@@ -435,15 +432,13 @@ if __name__ == "__main__":
                     v_loss = 0.5 * ((newvalue - b_returns[mb_inds]) ** 2).mean()
 
                 entropy_loss = entropy.mean()
-                loss = pg_loss - args.ent_coef * entropy_loss + v_loss * args.vf_coef
+                loss = pg_loss - config.rl_algo.ent_coef * entropy_loss + v_loss * config.rl_algo.vf_coef
 
                 optimizer.zero_grad()
                 loss.backward()
-                nn.utils.clip_grad_norm_(agent.parameters(), args.max_grad_norm)
+                nn.utils.clip_grad_norm_(actor.parameters(), config.rl_algo.max_grad_norm)
+                nn.utils.clip_grad_norm_(critic.parameters(), config.rl_algo.max_grad_norm)
                 optimizer.step()
-
-            if args.target_kl is not None and approx_kl > args.target_kl:
-                break
 
         y_pred, y_true = b_values.cpu().numpy(), b_returns.cpu().numpy()
         var_y = np.var(y_true)
