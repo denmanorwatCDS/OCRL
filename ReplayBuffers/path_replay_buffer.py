@@ -58,7 +58,7 @@ def calculate_GAE(rewards, values, next_values, dones, options, discount, gae_la
     options = np.array(options)
     for t in reversed(range(max_length)):
         nonterminal = 1 - trajectory_info['dones'][:, t]
-
+        
         # (Q(s, a) - V(s)): single-sample advantage
         delta = (rewards[:, t] + discount * next_values[:, t] * nonterminal) - values[:, t]
         
@@ -282,7 +282,7 @@ class PathBuffer:
 
     def update_replay_buffer(self, data):
         if self.on_policy:
-            self.store_recent_paths(data)
+            self.store_recent_paths(copy.deepcopy(data))
 
         data = dict(self.preprocess_data(data))
         for i in range(len(data['actions'])):

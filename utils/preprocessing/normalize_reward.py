@@ -19,7 +19,7 @@ class NormalizeReward:
         self.mean, self.var = 0, 1
 
     def modify_reward(self, rewards):
-        assert len(rewards.shape) == 2, '3 dimensions expected: [batch, time]'
+        assert len(rewards.shape) == 2, '2 dimensions expected: [batch, time]'
         rets = copy.deepcopy(rewards)
         for t in range(1, rewards.shape[1]):
             rets[:, t] = rets[:, t - 1] * self.gamma + rewards[:, t]
@@ -29,7 +29,7 @@ class NormalizeReward:
 
     def _update_running_mean_var(self, x):
         """Updates the mean, var and count from a batch of samples."""
-        assert len(x.shape) == 2, '3 dimensions expected: [batch, time]'
+        assert len(x.shape) == 2, '2 dimensions expected: [batch, time]'
         samples_qty = x.shape[0] * x.shape[1]
         substitution_idxs = np.arange(self.total_samples_processed, self.total_samples_processed + samples_qty) \
             % self.buffer_size

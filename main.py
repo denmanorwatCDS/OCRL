@@ -578,10 +578,10 @@ def collect_trajectories(env, agent, trajectories_length, skills_per_traj = None
     
     generated_trajectories = generated_trajectories[:trajectories_qty]
     if agent.on_policy and mode == 'train':
-        prev_obs = torch.tensor([generated_trajectories[i]['observations'] for i in range(len(generated_trajectories))])
-        next_obs = torch.tensor([generated_trajectories[i]['next_observations'] for i in range(len(generated_trajectories))])
-        options = torch.tensor([generated_trajectories[i]['agent_infos']['options'] for i in range(len(generated_trajectories))])
-        obj_idxs = torch.tensor([generated_trajectories[i]['agent_infos']['obj_idxs'] for i in range(len(generated_trajectories))])
+        prev_obs = torch.tensor(np.array([generated_trajectories[i]['observations'] for i in range(len(generated_trajectories))]))
+        next_obs = torch.tensor(np.array([generated_trajectories[i]['next_observations'] for i in range(len(generated_trajectories))]))
+        options = torch.tensor(np.array([generated_trajectories[i]['agent_infos']['options'] for i in range(len(generated_trajectories))]))
+        obj_idxs = torch.tensor(np.array([generated_trajectories[i]['agent_infos']['obj_idxs'] for i in range(len(generated_trajectories))]))
         prev_obs = {'obs': prev_obs.reshape((-1,) + tuple(prev_obs.shape[2:])).to(agent.device), 
                     'options': options.reshape((-1,) + tuple(options.shape[2:])).to(agent.device), 
                     'obj_idxs': obj_idxs.reshape((-1,) + tuple(obj_idxs.shape[2:])).to(agent.device)}
@@ -645,6 +645,7 @@ def train_cycle(trainer_config, agent, skill_model, replay_buffer, rollout_buffe
                                      skills_per_traj = trainer_config.skills_per_trajectory, n_objects = n_objects,
                                      trajectories_qty = trainer_config.traj_batch_size, 
                                      trajectories_length = trainer_config.max_path_length)
+        prev_cur_step = cur_step
         for traj in trajs:
             cur_step += len(traj['observations'])
         replay_buffer.update_replay_buffer(trajs)
@@ -679,9 +680,9 @@ def train_cycle(trainer_config, agent, skill_model, replay_buffer, rollout_buffe
             for batched_idx in range(0, len(paths), trainer_config.on_policy_batch):
                 low, high = batched_idx, min(len(paths), batched_idx + trainer_config.on_policy_batch)
                 obs = torch.concatenate([torch.from_numpy(paths[i]['observations'])
-                                   for i in range(low, high)], axis=0).to(agent.device)
+                                   for i in range(low, high)], axis=0).to(agent.device).to(torch.float32)
                 next_obs = torch.concatenate([torch.from_numpy(paths[i]['next_observations'])
-                                        for i in range(low, high)], axis=0).to(agent.device)
+                                        for i in range(low, high)], axis=0).to(agent.device).to(torch.float32)
                 obj_idxs = torch.concatenate([torch.from_numpy(paths[i]['agent_infos']['obj_idxs'])
                                         for i in range(low, high)], axis=0).to(agent.device)
                 options = torch.concatenate([torch.from_numpy(paths[i]['agent_infos']['options']) 
@@ -699,10 +700,9 @@ def train_cycle(trainer_config, agent, skill_model, replay_buffer, rollout_buffe
                 else:
                     for key in torch_paths.keys():
                         torch_paths[key] = torch.cat([torch_paths[key], torch_subpaths[key]], axis = 0)
-            rews = running_std.modify_reward(torch_paths['rewards'].cpu().numpy())
+            torch_paths['rewards'] = running_std.modify_reward(torch_paths['rewards'].cpu().numpy())
             for k in range(0, len(paths)):
-                paths[k]['rewards'] = rews[k]
-
+                paths[k]['rewards'] = torch_paths['rewards'][k]
             rollout_buffer.update_replay_buffer(paths)
             
             j = 0
@@ -716,7 +716,6 @@ def train_cycle(trainer_config, agent, skill_model, replay_buffer, rollout_buffe
                     j += 1
             replay_buffer.delete_recent_paths()
             rollout_buffer.clear()
-            agent.reset_optimizers()
 
         if (prev_cur_step // trainer_config.log_frequency) < (cur_step // trainer_config.log_frequency):
             comet_logger.log_metrics(skill_stats.pop_statistics(), step = cur_step)

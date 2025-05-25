@@ -8,9 +8,15 @@ env:
   env_kwargs: null
 
 trainer_args:
-  trans_optimization_epochs: 200
+  trans_optimization_epochs: 225
+  skill_optimization_epochs: 150
+  policy_optimization_mult: 4
 
 replay_buffer:
+  skill:
+    min_transitions: null
+    max_transitions: 19_200
+    batch_size: 256
   common:
     max_transitions: 300000
 

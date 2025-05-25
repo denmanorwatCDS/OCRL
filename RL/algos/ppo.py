@@ -29,6 +29,7 @@ class PPO(nn.Module):
                  ):
         super().__init__()
         self.clip_coef = clip_coef
+        self.rollback_alpha = -0.3
         self.clip_vloss = clip_vloss
         self.ent_coef = ent_coef
         self.vf_coef = vf_coef
@@ -79,10 +80,10 @@ class PPO(nn.Module):
     def update_loss_act(self, batch):
         # TODO uncomment lines
         obs = batch['obs']
-        #option, obj_idx = batch['options'], batch['obj_idxs']
+        option, obj_idx = batch['options'], batch['obj_idxs']
         actions, pre_tanh_actions, old_logprobs = batch['actions'], batch['pre_tanh_actions'], batch['log_probs']
         opt_input = {'obs': obs}
-        #opt_input.update({'options': option, 'obj_idxs': obj_idx})
+        opt_input.update({'options': option, 'obj_idxs': obj_idx})
         new_logprobs, entropy, info = self.option_policy.get_logprob_and_entropy(opt_input, actions, pre_tanh_actions)
         log_ratio = new_logprobs - old_logprobs
         ratio = log_ratio.exp()
@@ -99,13 +100,18 @@ class PPO(nn.Module):
         mean_adv, std_adv = advantages.mean(), advantages.std()
         if self.normalize_advantage:
             advantages = (advantages - mean_adv) / (std_adv + 1e-8)
-
-        pg_loss1 = -advantages * ratio
-        pg_loss2 = -advantages * torch.clamp(ratio, 1 - self.clip_coef, 1 + self.clip_coef)
-        pg_loss = torch.max(pg_loss1, pg_loss2).mean()
+        clips = torch.where(advantages >= 0,
+                            torch.where(ratio <= 1 + self.clip_coef, 
+                                        ratio, 
+                                        self.rollback_alpha * ratio + (1 - self.rollback_alpha) * (1 + self.clip_coef)),
+                            torch.where(ratio >= 1 - self.clip_coef,
+                                        ratio,
+                                        self.rollback_alpha * ratio + (1 - self.rollback_alpha) * (1 - self.clip_coef)))
+        pg_loss = clips * advantages
+        pg_loss = -pg_loss.mean()
 
         entropy_loss = entropy.mean()
-        actor_loss = (pg_loss - self.ent_coef * entropy_loss) * self.current_loss_coef
+        actor_loss = (pg_loss - self.ent_coef * entropy_loss)
         return {'entropy_loss': entropy_loss.detach().cpu(),
                 'policy_gradient_loss': pg_loss.detach().cpu(),
                 'clip_fractions': clipfracs,
@@ -120,9 +126,9 @@ class PPO(nn.Module):
     def update_loss_vf(self, batch):
         # TODO uncomment lines
         obs = batch['obs']
-        #option, obj_idx = batch['options'], batch['obj_idxs']
+        option, obj_idx = batch['options'], batch['obj_idxs']
         opt_input = {'obs': obs}
-        #opt_input.update({'options': option, 'obj_idxs': obj_idx})
+        opt_input.update({'options': option, 'obj_idxs': obj_idx})
         new_values = torch.squeeze(self.critic(opt_input))
         returns, values = batch['returns'], batch['values']
         if self.clip_vloss:

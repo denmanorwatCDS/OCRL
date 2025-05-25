@@ -1,10 +1,10 @@
 globals:
   device: 'cuda'
   sample_cpu: true
-  seed: 43
+  seed: 42
   n_thread: 1
   n_parallel: 8
-  mlp_arch: [64, 64]
+  mlp_arch: [1024, 1024]
 
 env:
   name: maze
@@ -48,7 +48,7 @@ rl_algo:
   gae_lambda: 0.95
   norm_adv: true
   clip_coef: 0.2
-  clip_vloss: true
+  clip_vloss: false
   ent_coef: 0.0
   vf_coef: 0.5
   max_grad_norm: 0.5
@@ -60,8 +60,8 @@ rl_algo:
     slot_pooler:
       name: null
     name: 'option_policy'
-    lr: 3e-4
-    std_lr: 3e-04
+    lr: 1e-4
+    std_lr: 1e-4
     dim_option: ${skill.dim_option}
     hidden_sizes: ${globals.mlp_arch}
     hidden_w_init:
@@ -83,7 +83,7 @@ rl_algo:
       name: null
     slot_pooler:
       name: null
-    lr: 3e-4
+    lr: 1e-4
     dim_option: ${skill.dim_option}
     hidden_sizes: ${globals.mlp_arch}
     hidden_w_init:
@@ -99,24 +99,24 @@ replay_buffer:
   discount: ${rl_algo.discount}
   common: null
   skill:
-    min_transitions: 25_000
-    max_transitions: 1_000_000
+    min_transitions: null
+    max_transitions: 19_200
     batch_size: 256
   policy:
     min_transitions: null
     max_transitions: 100_000
-    batch_size: 64
+    batch_size: 256
 
 trainer_args:
   n_parallel: 4
   on_policy_batch: 15
-  traj_batch_size: 2
-  skills_per_trajectory: 1
+  traj_batch_size: 24
+  skills_per_trajectory: 4
   n_epochs: 100_000
   trans_optimization_epochs: null
-  skill_optimization_epochs: 50
-  policy_optimization_mult: 10
-  max_path_length: 999
-  transitions_before_training: 25_000
-  log_frequency: 5_000
+  skill_optimization_epochs: 150
+  policy_optimization_mult: 4
+  max_path_length: 200
+  transitions_before_training: 1
+  log_frequency: 50_000
   eval_frequency: 200_000

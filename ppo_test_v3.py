@@ -292,6 +292,11 @@ def fetch_config():
 
     return rl_config
 
+def prepare_batch(batch, device = 'cuda'):
+    data = {}
+    for key, value in batch.items():
+        data[key] = torch.from_numpy(value).to(device)
+    return data
 
 if __name__ == "__main__":
     config = fetch_config()
@@ -328,94 +333,64 @@ if __name__ == "__main__":
                                     discount = config.replay_buffer.discount, gae_lambda = config.replay_buffer.gae_lambda,
                                     on_policy = rl_algo.on_policy)
 
-    # ALGO Logic: Storage setup
-    obs = torch.zeros((config.trainer_args.max_path_length, 1) + envs.single_observation_space.shape).to(device)
-    actions = torch.zeros((config.trainer_args.max_path_length, 1) + envs.single_action_space.shape).to(device)
-    pre_tanh_values = torch.zeros((config.trainer_args.max_path_length,) + envs.single_action_space.shape).to(device)
-    logprobs = torch.zeros((config.trainer_args.max_path_length, 1)).to(device)
-    rewards = torch.zeros((config.trainer_args.max_path_length, 1)).to(device)
-    dones = torch.zeros((config.trainer_args.max_path_length, 1)).to(device)
-    values = torch.zeros((config.trainer_args.max_path_length, 1)).to(device)
-
     # TRY NOT TO MODIFY: start the game
     global_step = 0
     start_time = time.time()
-    next_obs = envs.reset()
-    next_obs = torch.Tensor(next_obs).to(device)
+    obs = envs.reset()
     next_done = torch.zeros(1).to(device)
 
-    generated_trajectories = [{} for i in range(trajectories_qty)]
+    generated_trajectories = []
     for iteration in range(1, config.trainer_args.n_epochs + 1):
         # TODO No annealing!!!
-
+        data = {'observations': [], 'next_observations': [], 'actions': [], 'rewards': [], 'dones': [],
+                'agent_infos': {'log_probs': [], 'pre_tanh_actions': [], 'values': [], 'next_values': [], 'options': []},
+                'env_infos': {'0': []}}
         for step in range(0, config.trainer_args.max_path_length):
             global_step += 1
-            obs[step] = next_obs
-            dones[step] = next_done
-
+            t_obs = torch.squeeze(torch.from_numpy(obs).to(device))
             # ALGO LOGIC: action logic
             with torch.no_grad():
-                action, info = actor.get_actions({'obs': next_obs})
+                action, info = actor.get_actions({'obs': t_obs})
                 logprob, pre_tanh_value = info['log_prob'], info['pre_tanh_value']
-                value = critic({'obs': next_obs})
-                values[step] = value.flatten()
-            actions[step] = torch.from_numpy(action)
-            logprobs[step] = torch.from_numpy(logprob)
-            pre_tanh_values[step] = torch.from_numpy(pre_tanh_value)
+                value = torch.squeeze(critic({'obs': t_obs})).cpu().numpy()
+                logprob, pre_tanh_value = logprob, pre_tanh_value
 
             # TRY NOT TO MODIFY: execute the game and log data.
             next_obs, reward, done, infos = envs.step(action)
-            next_done = done
-            rewards[step] = torch.tensor(reward).to(device).view(-1)
-            next_obs, next_done = torch.Tensor(next_obs).to(device), torch.Tensor(next_done).to(device)
 
+            data['observations'].append(obs)
+            data['next_observations'].append(next_obs), data['actions'].append(action), 
+            data['rewards'].append(reward[0]), data['dones'].append(done[0]), data['agent_infos']['log_probs'].append(logprob),
+            data['agent_infos']['pre_tanh_actions'].append(pre_tanh_value), data['agent_infos']['values'].append(value)
+            t_next_obs = torch.from_numpy(next_obs).to(device)
+            data['agent_infos']['next_values'].append(torch.squeeze(critic({'obs': t_next_obs})).cpu().detach().numpy()),
+            data['agent_infos']['options'].append(0)
+            data['env_infos']['0'].append(0)
+            obs = next_obs
             if done:
                 print(f"global_step={global_step}, episodic_return={infos[0]['episode']['r']}")
                 exp.log_metrics({"charts/episodic_return": infos[0]["episode"]["r"],
                                  "charts/episodic_length": infos[0]["episode"]["l"]}, step = global_step)
-
-        # bootstrap value if not done
-        with torch.no_grad():
-            next_value = critic({'obs': next_obs}).reshape(1, -1)
-            advantages = torch.zeros_like(rewards).to(device)
-            lastgaelam = 0
-            for t in reversed(range(config.trainer_args.max_path_length)):
-                if t == config.trainer_args.max_path_length - 1:
-                    nextnonterminal = 1.0 - next_done
-                    nextvalues = next_value
-                else:
-                    nextnonterminal = 1.0 - dones[t + 1]
-                    nextvalues = values[t + 1]
-                delta = rewards[t] + config.replay_buffer.discount * nextvalues * nextnonterminal - values[t]
-                advantages[t] = lastgaelam = delta + config.replay_buffer.discount * config.replay_buffer.gae_lambda * nextnonterminal * lastgaelam
-            returns = advantages + values
-
-        # flatten the batch
-        b_obs = obs.reshape((-1,) + envs.single_observation_space.shape)
-        b_logprobs = logprobs.reshape(-1)
-        b_pre_tanh_values = pre_tanh_values.reshape((-1,) + envs.single_action_space.shape)
-        b_actions = actions.reshape((-1,) + envs.single_action_space.shape)
-        b_advantages = advantages.reshape(-1)
-        b_returns = returns.reshape(-1)
-        b_values = values.reshape(-1)
-
+                generated_trajectories.append({key: np.stack(data[key]) for key in ['observations', 'next_observations', 'actions', 'rewards', 'dones']})
+                generated_trajectories[-1].update({'agent_infos': {key: np.stack(data['agent_infos'][key]) for key in data['agent_infos'].keys()}})
+                generated_trajectories[-1].update({'env_infos': {key: np.stack(data['env_infos'][key]) for key in data['env_infos'].keys()}})
+                data = {'observations': [], 'next_observations': [], 'actions': [], 'rewards': [], 'dones': [],
+                        'agent_infos': {'log_probs': [], 'pre_tanh_actions': [], 'values': [], 'next_values': [], 'options': []},
+                        'env_infos': {'0': []}}
+        rollout_buffer.update_replay_buffer(generated_trajectories)
         # Optimizing the policy and value network
-        b_inds = np.arange(config.trainer_args.max_path_length)
         clipfracs = []
         for epoch in range(config.trainer_args.policy_optimization_mult):
-            np.random.shuffle(b_inds)
-            for start in range(0, config.trainer_args.max_path_length, config.replay_buffer.policy.batch_size):
-                end = start + config.replay_buffer.policy.batch_size
-                mb_inds = b_inds[start:end]
-                batch = {'obs': b_obs[mb_inds], 'actions': b_actions[mb_inds], 'pre_tanh_actions': b_pre_tanh_values[mb_inds],
-                         'log_probs': b_logprobs[mb_inds], 'advantages': b_advantages[mb_inds], 'returns': b_returns[mb_inds],
-                         'values': b_values[mb_inds]}
+            for batch in rollout_buffer.next_batch():
+                batch = prepare_batch(batch)
                 logs = rl_algo.optimize_op(batch)
                 clipfracs.append(logs['clip_fractions'])
 
-        y_pred, y_true = b_values.cpu().numpy(), b_returns.cpu().numpy()
+        y_pred, y_true = rollout_buffer._buffer['values'][:config.trainer_args.max_path_length], rollout_buffer._buffer['returns'][:config.trainer_args.max_path_length]
         var_y = np.var(y_true)
         explained_var = np.nan if var_y == 0 else 1 - np.var(y_true - y_pred) / var_y
+        rollout_buffer.clear()
+        generated_trajectories = []
 
         # TRY NOT TO MODIFY: record rewards for plotting purposes
         exp.log_metrics({"losses/value_loss": logs['value_loss'].item(),
