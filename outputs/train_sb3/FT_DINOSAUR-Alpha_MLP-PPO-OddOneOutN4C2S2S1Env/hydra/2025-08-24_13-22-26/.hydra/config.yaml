@@ -1,0 +1,228 @@
+prefill_size: 50
+data_folder: null
+num_visualization: 5
+device: 0
+tags: ''
+seed: 345
+num_envs: 4
+num_workers: 1
+load:
+  resume_run_path: null
+  resume_checkpoint: null
+max_epochs: 10
+max_steps: 200000
+model_name: null
+session_name: null
+viz_interval: 30000
+eval:
+  freq: 12500
+  n_episodes: 100
+  video:
+    qty: 5
+    length: 1500
+ocr:
+  name: FT_DINOSAUR
+  resize: false
+  use_augs: true
+  augment_samples: false
+  obs_size: 224
+  batch_size: 11
+  pretrained_path: null
+  dataset_folder: h
+  image_limits:
+  - -1
+  - 1
+  slotattr:
+    num_iterations: 3
+    num_slots: 6
+    num_slot_heads: 1
+    slot_size: 64
+    mlp_hidden_size: 192
+    pos_channels: 4
+    preinit_type: classic
+    min_features_dropped: 0.0
+    max_features_dropped: 0.5
+    feature_dropout_proba: 0.0
+  encattr:
+    backbone:
+      name: TimmExtractor
+      model: vit_small_patch14_dinov2
+      features: vit_block12
+      frozen: false
+      pretrained: true
+      resize: ${...resize}
+      unfrozen_blocks: 12
+      layerwise_decay: 0.85
+      patch_dropout:
+        min_patches_dropped: 0.2
+        max_patches_dropped: 0.5
+        apply_dropout_proba: 0.0
+      model_kwargs:
+        dynamic_img_size: true
+    output_transform: null
+  targetencattr:
+    backbone:
+      name: TimmExtractor
+      model: vit_small_patch14_dinov2
+      features: vit_block12
+      frozen: true
+      pretrained: true
+      resize: ${...resize}
+      patch_dropout:
+        min_patches_dropped: 0.0
+        max_patches_dropped: 0.0
+        apply_dropout_proba: 0.0
+      model_kwargs:
+        dynamic_img_size: true
+  optimizer:
+    decoder_optimizer:
+      lr: 0.0003
+      gradient_clip_val: 1.0
+      weight_decay: 0.0
+      lr_scheduler:
+        type: cosine
+        warmup_steps: 20000
+        decay_steps: 1300000
+    slot_optimizer:
+      lr: 0.0003
+      gradient_clip_val: 1.0
+      weight_decay: 0.0
+      lr_scheduler:
+        type: cosine
+        warmup_steps: 20000
+        decay_steps: 1300000
+    encoder_optimizer:
+      lr: 0.0003
+      gradient_clip_val: 0.1
+      weight_decay: 0.01
+      lr_scheduler:
+        type: cosine
+        warmup_steps: 20000
+        decay_steps: 1300000
+  decoder:
+    inp_dim: 64
+    outp_dim: 384
+    hidden_dims:
+    - 512
+    - 512
+    - 512
+    dropout_prob: 0.0
+    spectral_normalisation: false
+  loss:
+    reg_coef: 0.0
+pooling:
+  learn_aux_loss: false
+  learn_downstream_loss: false
+  ocr_checkpoint:
+    entity: ''
+    project: ''
+    run_id: ''
+    file: ''
+    local_file: ''
+  name: Alpha_MLP
+  dims:
+  - 128
+  - 128
+  learning:
+    lr: 0.0001
+sb3:
+  name: PPO
+  algo_kwargs:
+    train_feature_extractor: false
+    freeze_feature_extractor: true
+    n_steps: 2048
+    batch_size: 32
+    learning_rate: 0.0003
+    ent_coef: 0.05
+    gamma: 0.99
+    vf_coef: 0.5
+    target_kl: null
+    clip_range: 0.2
+    bc_mult: 1.0
+    ppg_mult: 2
+    train_every_rollout: 1
+    ppg_early_stopping: 0.995
+    pretrain_steps: 15
+    pass_only_critic_grad: false
+    normalize_policy_gradient: false
+    agent_only_slot_update: false
+sb3_acnet:
+  optimizer:
+    policy_optimizer:
+      eps: 1.0e-05
+      weight_decay: 0.0
+      gradient_clip_val: 0.5
+  ortho_init: false
+  shared_net:
+    dims:
+    - 64
+    - 64
+    acts:
+    - relu
+    - relu
+  policy_net:
+    dims:
+    - 64
+    acts:
+    - tanh
+  value_net:
+    dims:
+    - 64
+    acts:
+    - tanh
+  name: MLP
+env:
+  num_objects_range:
+  - 4
+  - 4
+  state_size: 5
+  mode: hard
+  rew_type: sparse
+  distance_to_agent: 0.08
+  distance_to_objs: 0.08
+  distance_to_wall: 0.08
+  num_stacked_obss: 1
+  tags: ''
+  obs_size: 64
+  obs_channels: 3
+  moving_step_size: 0.05
+  wo_agent: false
+  skewed: false
+  occlusion: false
+  render_mode: image
+  max_steps: 100
+  agent_pos:
+  - 0.5
+  - 0.5
+  SHAPES:
+  - square
+  - triangle
+  COLORS:
+  - blue
+  - green
+  SCALES:
+  - 0.15
+  AGENT:
+  - red
+  - circle
+  - 0.15
+  background:
+    use_bg: false
+    img_paths:
+    - ../dtd/images/braided
+    - ../dtd/images/stratified
+  unseen_combi_mode: null
+  unseen_combi: []
+  obj_comp: false
+  env: OddOneOutEnv
+  name: OddOneOutN4C2S2S1Env
+comet:
+  workspace: denmanorwat
+  project_name: ocrl_benchmark_ppg
+  log: all
+  log_gradient_freq: 0
+  offline: false
+  run_id: null
+  project: ocrl-rl
+  api_key: bbCMVUhDwSJsEqwcmhZ2MXdfE
+data_path: /media/denis/data/OCRL_causal/config.env-N4C11S1S1-Tr1000000-Val10000_224.hdf5

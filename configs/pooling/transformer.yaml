@@ -1,0 +1,14 @@
+defaults:
+    - _base
+    - _self_
+
+name: 'Transformer'
+rep_dim: 128
+d_model: 128
+nhead: 4
+num_layers: 1
+pos_emb: None
+norm_first: False
+mlp_preprocessor: False
+learning:
+    lr: 1e-4

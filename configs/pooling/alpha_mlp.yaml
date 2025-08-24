@@ -1,0 +1,8 @@
+defaults:
+    - _base
+    - _self_
+
+name: 'Alpha_MLP'
+dims: [128, 128]
+learning:
+    lr: 1e-4

@@ -1,0 +1,9 @@
+obs_size: 64
+obs_channels: 3
+num_stacked_obss: 1
+env: Pong
+name: Pong
+mode: None
+rew_type: None
+num_objects_range: None
+tags: None

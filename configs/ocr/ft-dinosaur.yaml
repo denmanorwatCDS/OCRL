@@ -1,0 +1,92 @@
+name: 'FT_DINOSAUR'
+resize: false
+use_augs: true
+augment_samples: false
+obs_size: 224
+batch_size: 128
+pretrained_path: null
+dataset_folder: null
+image_limits: [-1, 1]
+
+slotattr:
+  num_iterations: 3
+  num_slots: 5
+  num_slot_heads: 1
+  slot_size: 64
+  mlp_hidden_size: 192
+  pos_channels: 4
+  preinit_type: classic
+  min_features_dropped: 0.
+  max_features_dropped: 0.5
+  feature_dropout_proba: 0.
+
+encattr:
+  backbone:
+    name: TimmExtractor
+    model: vit_small_patch14_dinov2
+    features: vit_block12
+    frozen: false
+    pretrained: true 
+    resize: ${...resize}
+    unfrozen_blocks: 12
+    layerwise_decay: 0.85
+    patch_dropout:
+      min_patches_dropped: 0.2
+      max_patches_dropped: 0.5
+      apply_dropout_proba: 0.
+    model_kwargs:
+      dynamic_img_size: True
+  output_transform: null
+
+targetencattr:
+  backbone:
+    name: TimmExtractor
+    model: vit_small_patch14_dinov2 # must coincide with encattr.backbone.model
+    features: vit_block12
+    frozen: true
+    pretrained: true
+    resize: ${...resize}
+    patch_dropout:
+      min_patches_dropped: 0.
+      max_patches_dropped: 0.
+      apply_dropout_proba: 0.
+    model_kwargs:
+      dynamic_img_size: True
+
+optimizer:
+  decoder_optimizer:
+    lr: 0.0003
+    gradient_clip_val: 1.
+    weight_decay: 0.0
+    lr_scheduler:
+      type: cosine
+      warmup_steps: 20_000
+      decay_steps: 1_300_000
+
+  slot_optimizer:
+    lr: 0.0003
+    gradient_clip_val: 1.
+    weight_decay: 0.0
+    lr_scheduler:
+      type: cosine
+      warmup_steps: 20_000
+      decay_steps: 1_300_000
+  
+  encoder_optimizer:
+    lr: 0.0003
+    gradient_clip_val: 0.1
+    weight_decay: 0.01
+    lr_scheduler:
+      type: cosine
+      warmup_steps: 20_000
+      decay_steps: 1_300_000
+
+decoder:
+  inp_dim: 64 # must coincide with slotattr.slot_size
+  outp_dim: 384 # must coincide with encattr.output_transform.inp_dim
+  hidden_dims: [512, 512, 512]
+  dropout_prob: 0.
+  spectral_normalisation: false
+
+loss:
+  reg_coef: 0.

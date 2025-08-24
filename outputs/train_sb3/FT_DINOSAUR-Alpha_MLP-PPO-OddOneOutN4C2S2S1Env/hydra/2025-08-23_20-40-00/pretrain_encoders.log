@@ -1,0 +1,4 @@
+[2025-08-23 20:40:12,395][timm.models._builder][INFO] - Loading pretrained weights from Hugging Face hub (timm/vit_small_patch14_dinov2.lvd142m)
+[2025-08-23 20:40:12,692][timm.models._hub][INFO] - [timm/vit_small_patch14_dinov2.lvd142m] Safe alternative available for 'pytorch_model.bin' (as 'model.safetensors'). Loading weights using safetensors.
+[2025-08-23 20:40:14,963][timm.models._builder][INFO] - Loading pretrained weights from Hugging Face hub (timm/vit_small_patch14_dinov2.lvd142m)
+[2025-08-23 20:40:15,139][timm.models._hub][INFO] - [timm/vit_small_patch14_dinov2.lvd142m] Safe alternative available for 'pytorch_model.bin' (as 'model.safetensors'). Loading weights using safetensors.

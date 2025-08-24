@@ -1,0 +1,62 @@
+name: 'Slot_Attention'
+
+cnn_hsize: 64
+obs_size: 64
+batch_size: 64
+initial_size: 8
+resize: false
+use_augs: false
+augment_samples: false
+dataset_folder: null
+pretrained_path: null
+image_limits: [0, 1]
+
+cnn_patch_dropout:
+  min_patches_dropped: 0.
+  max_patches_dropped: 0.5
+  patch_dropout_proba: 0.
+
+feature_dropout:
+  min_features_dropped: 0.
+  max_features_dropped: 0.5
+  feature_dropout_proba: 0.
+
+loss:
+  reg_coef: 0.
+
+slotattr:
+  num_iterations: 3
+  num_slots: 5
+  num_slot_heads: 1
+  slot_size: 192
+  mlp_hidden_size: 192
+  pos_channels: 4
+  preinit_type: classic
+
+optimizer:
+  encoder_optimizer:
+    lr: 1e-4
+    gradient_clip_val: 0.05
+    lr_scheduler:
+      type: exp
+      warmup_steps: 30_000
+      decay_rate: 0.5
+      decay_steps: 250_000
+
+  slot_optimizer:
+    lr: 1e-4
+    gradient_clip_val: 0.05
+    lr_scheduler:
+      type: exp
+      warmup_steps: 30_000
+      decay_rate: 0.5
+      decay_steps: 250_000
+  
+  decoder_optimizer:
+    lr: 1e-4
+    gradient_clip_val: 0.05
+    lr_scheduler:
+      type: exp
+      warmup_steps: 30_000
+      decay_rate: 0.5
+      decay_steps: 250_000
