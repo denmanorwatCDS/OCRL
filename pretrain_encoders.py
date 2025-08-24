@@ -143,7 +143,6 @@ def main(config):
                                   shuffle = True, num_workers = 4, prefetch_factor = 1)
     val_dataloader = DataLoader(val_dataset, batch_size = config.ocr.batch_size, shuffle = False)
     
-    import envs
     model = getattr(ocrs, config.ocr.name)(config.ocr, config.env)
     model = model.to('cuda')
     optimizer = OCOptimizer(omegaconf.OmegaConf.to_container(config.ocr.optimizer), oc_model = model, policy = None)
@@ -153,19 +152,19 @@ def main(config):
         for batch in train_dataloader:
             batch = batch.to('cuda')
             optimizer.optimizer_zero_grad()
-            loss = model.get_loss(batch, do_dropout = False)
+            loss, mets = model.get_loss(batch, do_dropout = False)
             loss.backward()
-            mets = optimizer.optimizer_step('oc')
+            mets.update(optimizer.optimizer_step('oc'))
 
             if i % 100 == 0:
-                experiment.log_metric(name = 'loss', value = loss.detach().cpu())
-                experiment.log_metrics(mets)
+                experiment.log_metric(name = 'loss', value = loss.detach().cpu(), step = i)
+                experiment.log_metrics(mets, step = i)
 
             if (i % 1_000 == 0):
                 logs, imgs = evaluate_model(model = model, val_dataloader = val_dataloader)
-                experiment.log_metrics(logs)
+                experiment.log_metrics(logs, step = i)
                 for key in imgs.keys():
-                    experiment.log_image(image_data = imgs[key], name = key, image_minmax=(0, 255))
+                    experiment.log_image(image_data = imgs[key], name = key, image_minmax=(0, 255), step = i)
 
             i += 1
             if i > config.max_steps:

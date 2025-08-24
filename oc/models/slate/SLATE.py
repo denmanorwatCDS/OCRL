@@ -160,7 +160,10 @@ class SLATE(OC_model):
         cross_entropy = self._calculate_CE(obs, slots, z_hard = z_hard)
         
         total_loss = dvae_mse + cross_entropy
-        return total_loss
+        mets = {'total_loss': total_loss.detach().cpu(),
+                'dvae_mse': dvae_mse.detach().cpu(),
+                'cross_entropy': cross_entropy.detach().cpu()}
+        return total_loss, mets
     
     def calculate_validation_data(self, obs):
         with torch.no_grad():

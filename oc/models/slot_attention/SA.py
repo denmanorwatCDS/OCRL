@@ -84,7 +84,9 @@ class Slot_Attention(OC_model):
         recon, _ = self._dec(slots)
         mse = torch.nn.MSELoss(reduction = "mean")
         SA_loss = mse(recon, obs)
-        return SA_loss
+        mets = {'total_loss': SA_loss.detach().cpu(),
+                'SA_loss': SA_loss.detach().cpu()}
+        return SA_loss, mets
     
     def calculate_validation_data(self, obs):
         with torch.no_grad():

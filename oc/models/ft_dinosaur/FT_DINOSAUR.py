@@ -150,6 +150,8 @@ class FT_DINOSAUR(OC_model):
         assert decoder_output.shape == target_encoder_output.shape,\
             'Decoder shape and target shape must coincide!'
         dino_loss = mse(decoder_output, target_encoder_output)
+        mets = {'total_loss': dino_loss.detach().cpu(),
+                'dino_loss': dino_loss.detach().cpu()}
         return dino_loss
     
     def calculate_validation_data(self, obs):
