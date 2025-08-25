@@ -82,8 +82,8 @@ class Slot_Attention(OC_model):
     def get_loss(self, obs, do_dropout):
         slots, _ = self._get_slots(obs, do_dropout = do_dropout, training = True)
         recon, _ = self._dec(slots)
-        mse = torch.nn.MSELoss(reduction = "mean")
-        SA_loss = mse(recon, obs)
+        # mse = torch.nn.MSELoss(reduction = "mean")
+        SA_loss = ((obs - recon) ** 2).sum() / obs.shape[0]
         mets = {'total_loss': SA_loss.detach().cpu(),
                 'SA_loss': SA_loss.detach().cpu()}
         return SA_loss, mets

@@ -37,6 +37,7 @@ optimizer:
   global_gradient_clip_val: 0.05
   encoder_optimizer:
     lr: 1e-4
+    weight_decay: 0.0
     lr_scheduler:
       type: exp
       warmup_steps: 30_000
@@ -45,6 +46,7 @@ optimizer:
 
   slot_optimizer:
     lr: 1e-4
+    weight_decay: 0.0
     lr_scheduler:
       type: exp
       warmup_steps: 30_000
@@ -53,6 +55,7 @@ optimizer:
   
   decoder_optimizer:
     lr: 3e-4
+    weight_decay: 0.0
     lr_scheduler:
       type: exp
       warmup_steps: 30_000

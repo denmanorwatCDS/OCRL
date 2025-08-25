@@ -139,7 +139,7 @@ class OCOptimizer():
                 )
             weight_norm = self.get_weight_norm([key])
             metrics[f'tr_weight_norm/{key}_{optim_name}_optim'] = weight_norm
-        target_optim.step(), self.rl_scheduler.step(), self.oc_scheduler.step()
+        self.rl_scheduler.step(), self.oc_scheduler.step(), target_optim.step()
         mean_lr, mean_decay = {}, {}
         for i in range(len(target_optim.param_groups)):
             name, lr, wd = target_optim.param_groups[i]['name'], target_optim.param_groups[i]['lr'],\
