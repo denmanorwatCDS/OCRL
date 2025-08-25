@@ -162,9 +162,10 @@ def main(config):
 
             if (i % 1_000 == 0):
                 logs, imgs = evaluate_model(model = model, val_dataloader = val_dataloader)
-                experiment.log_metrics(logs, step = i)
+                experiment.log_metrics({f'val/{key}': logs[key] for key in logs.keys()}, step = i)
                 for key in imgs.keys():
-                    experiment.log_image(image_data = imgs[key], name = key, image_minmax=(0, 255), step = i)
+                    experiment.log_image(image_data = imgs[key], name = f'val/{key}', 
+                                         image_minmax = (0, 255), step = i)
 
             i += 1
             if i > config.max_steps:
