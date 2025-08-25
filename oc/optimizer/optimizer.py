@@ -45,6 +45,7 @@ class OCOptimizer():
         modules_optim_kwargs = deepcopy(self.optim_config)
         modules_paramwise_lrs = self.oc_model.get_paramwise_lr()
         self.global_grad_clip = modules_optim_kwargs.pop('global_gradient_clip_val', None)
+        self.grad_clip_type = modules_optim_kwargs.pop('grad_clip_type', 2.0)
         self.grad_clips = {key: modules_optim_kwargs[key].pop('gradient_clip_val', None) for key in\
                            modules_optim_kwargs.keys()}
         scheduler_kwargs = {key: modules_optim_kwargs[key].pop('lr_scheduler', None) for key in\
@@ -130,12 +131,13 @@ class OCOptimizer():
             params = self.oc_model.parameters()
             if self.policy is not None:
                 params = itertools.chain(params, self.policy.parameters())
-            metrics[f'tr_global_grad_norm/{optim_name}_optim'] = clip_grad_norm_(params, self.global_grad_clip)
+            metrics[f'tr_global_grad_norm/{optim_name}_optim'] = clip_grad_norm_(params, self.global_grad_clip, 
+                                                                                 norm_type = self.grad_clip_type)
         for key in module_named_params.keys():
             params = [outp[1] for outp in module_named_params[key]]
             if self.grad_clips[f'{key}_optimizer']:
                 metrics[f'tr_grad_norm/{key}_{optim_name}_optim'] = clip_grad_norm_(
-                    params, self.grad_clips[f'{key}_optimizer'],
+                    params, self.grad_clips[f'{key}_optimizer'], norm_type = self.grad_clip_type
                 )
             weight_norm = self.get_weight_norm([key])
             metrics[f'tr_weight_norm/{key}_{optim_name}_optim'] = weight_norm

@@ -47,6 +47,7 @@ tfdec:
 
 optimizer:
   global_gradient_clip_val: 0.05
+  grad_clip_type: 'inf'
   encoder_optimizer:
     lr: 1e-4
     weight_decay: 0.0
