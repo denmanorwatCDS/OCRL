@@ -52,7 +52,7 @@ optimizer:
       decay_steps: 250_000
   
   decoder_optimizer:
-    lr: 1e-4
+    lr: 3e-4
     lr_scheduler:
       type: exp
       warmup_steps: 30_000
