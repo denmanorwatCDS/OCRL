@@ -34,9 +34,9 @@ slotattr:
   preinit_type: classic
 
 optimizer:
+  global_gradient_clip_val: 0.05
   encoder_optimizer:
     lr: 1e-4
-    gradient_clip_val: 0.05
     lr_scheduler:
       type: exp
       warmup_steps: 30_000
@@ -45,7 +45,6 @@ optimizer:
 
   slot_optimizer:
     lr: 1e-4
-    gradient_clip_val: 0.05
     lr_scheduler:
       type: exp
       warmup_steps: 30_000
@@ -54,7 +53,6 @@ optimizer:
   
   decoder_optimizer:
     lr: 1e-4
-    gradient_clip_val: 0.05
     lr_scheduler:
       type: exp
       warmup_steps: 30_000

@@ -57,6 +57,7 @@ def evaluate_model(model, val_dataloader):
                 if key not in precalc_data.keys():
                     precalc_data[key] = []
                 precalc_data[key].append(mets[key])
+                
     logs = {key: np.mean(val) for key, val in precalc_data.items()}
     for mask in ari_dict.keys():
         for metric in ari_dict[mask].keys():
@@ -155,9 +156,8 @@ def main(config):
             loss, mets = model.get_loss(batch, do_dropout = False)
             loss.backward()
             mets.update(optimizer.optimizer_step('oc'))
-
+            
             if i % 100 == 0:
-                experiment.log_metric(name = 'loss', value = loss.detach().cpu(), step = i)
                 experiment.log_metrics(mets, step = i)
 
             if (i % 1_000 == 0):
