@@ -143,10 +143,7 @@ class SLATE(OC_model):
         decoder_output = self._tfdec(z_emb[:, :-1], projected_slots)
         pred = self._out(decoder_output)
         cross_entropy = (
-            -(z_hard * torch.log_softmax(pred, dim=-1))
-                .flatten(start_dim=1)
-                .sum(-1)
-                .mean())
+            -(z_hard * torch.log_softmax(pred, dim=-1)).flatten(start_dim=1).mean())
         return cross_entropy
     
     def get_loss(self, obs, do_dropout):

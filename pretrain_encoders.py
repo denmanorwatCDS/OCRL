@@ -1,7 +1,6 @@
 import numpy as np
 import hydra
 import omegaconf
-import torch
 
 from comet_ml import Experiment
 from torch.utils.data import DataLoader
@@ -166,7 +165,7 @@ def main(config):
                 for key in imgs.keys():
                     experiment.log_image(image_data = imgs[key], name = f'val/{key}', 
                                          image_minmax = (0, 255), step = i)
-
+            
             i += 1
             if i > config.max_steps:
                 break
