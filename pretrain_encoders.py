@@ -112,7 +112,6 @@ def main(config):
     uint_to_float = lambda x: (x.astype(np.float32) / 255 * (max_val - min_val) + min_val)
     
     # TODO add coco tests for FT-DINOSAUR
-    
     """
     if '/coco_2017' in config.data_path:
         train_img_augs = Compose([RandomHorizontalFlip(p = 0.5), 
@@ -152,7 +151,7 @@ def main(config):
         for batch in train_dataloader:
             batch = batch.to('cuda')
             optimizer.optimizer_zero_grad()
-            loss, mets = model.get_loss(batch, do_dropout = False)
+            loss, mets = model.get_loss(batch, do_dropout = True)
             loss.backward()
             mets.update(optimizer.optimizer_step('oc'))
             

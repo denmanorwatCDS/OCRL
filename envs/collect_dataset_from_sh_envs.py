@@ -1,9 +1,7 @@
-import argparse
 import multiprocessing
 import os
 
 import synthetic_envs
-import gym
 import h5py
 import hydra
 import numpy as np

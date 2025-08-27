@@ -1,14 +1,11 @@
-import argparse
 import multiprocessing
 import os
 
 import cw_envs
-import gym
 import h5py
 import hydra
 import numpy as np
 import tqdm
-from PIL import Image
 
 num_tr = 1000000
 num_val = 10000
