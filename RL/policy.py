@@ -20,7 +20,7 @@ class Policy(nn.Module):
         super().__init__()
 
         self.is_action_discrete = is_action_discrete
-        
+        assert isinstance(observation_size, int) and isinstance(action_size, int)
         actor_modules, critic_modules = [], []
         actor_modules.append(layer_init(nn.Linear(observation_size, actor_mlp[0])))
         for in_dim, out_dim in zip(actor_mlp[:-1], actor_mlp[1:]):

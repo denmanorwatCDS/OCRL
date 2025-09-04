@@ -60,21 +60,24 @@ def make_env(env_id, idx, capture_video, run_name, gamma):
         return env
     return thunk
 
-def infer_action(envs):
-    if isinstance(envs.action_space, gym.spaces.tuple.Tuple):
-        if np.all([isinstance(envs.action_space[i], gym.spaces.discrete.Discrete) 
-                   for i in range(len(envs.action_space))]):
-            example_action = torch.Tensor(envs.action_space.sample())[0].unsqueeze(-1)
-            return example_action
-        elif np.all([isinstance(envs.action_space[i], gym.spaces.Box) 
-                     for i in range(len(envs.action_space))]):
-            return torch.Tensor(envs.action_space.sample()[0])
+def infer_obs_action_shape(envs):
+    # Due to vectorization, env will be represented by spaces.tuple.Tuple
     
-    elif isinstance(envs.action_space, gym.spaces.Box):
-        return torch.Tensor(envs.action_space.sample()[0])
+    obs_shape = envs.single_observation_space.shape
+    if isinstance(envs.single_action_space, gym.spaces.discrete.Discrete):
+        is_discrete = True
+        agent_action_data = envs.single_action_space.n
+        action_shape = (1,)    
+    elif isinstance(envs.action_space[i], gym.spaces.Box):
+        is_discrete = False
+        act = envs.single_action_space.sample()
+        agent_action_data, action_shape = act.shape, act.shape
 
-    else:
-        assert False, 'What da faq?'
+    if action_shape is None:
+        assert False, 'WhatDaFaq?'
+
+    return obs_shape, is_discrete, agent_action_data, action_shape
+        
 
 random.seed(seed)
 np.random.seed(seed)
@@ -86,27 +89,21 @@ envs = gym.vector.SyncVectorEnv(
     [make_env(env_id, i, capture_video, run_name, gamma) for i in range(num_envs)]
 )
 
-if isinstance(envs.single_action_space, gym.spaces.Box):
-    is_action_discrete = False
-    action_space_size = envs.action_space[0].shape[-1]
-else:
-    is_action_discrete = True
-    action_space_size = envs.action_space[0].n
-
-agent = Policy(envs.observation_space.shape[-1], action_space_size, is_action_discrete = is_action_discrete, 
+obs_shape, is_discrete, agent_action_data, action_shape = infer_obs_action_shape(envs)
+agent = Policy(obs_shape[0], agent_action_data, is_action_discrete = is_discrete, 
                actor_mlp = [64, 64], actor_act = 'Tanh', critic_mlp = [64, 64], critic_act = 'Tanh',
                pooler_config = {'name': 'IdentityPooler'}).to(device)
-optimizer = optim.Adam(agent.parameters(), lr = learning_rate, eps = 1e-5)
 rollout_buffer = OCRolloutBuffer(gamma = gamma, gae_lambda = gae_lambda, device = device, seed = seed,
                                  num_parallel_envs = num_envs, memory_size = 50_000)
+rollout_buffer.initialize_target_shapes(obs_shape = obs_shape, action_shape = action_shape)
+
+optimizer = optim.Adam(agent.parameters(), lr = learning_rate, eps = 1e-5)
 
 # TRY NOT TO MODIFY: start the game
 global_step = 0
 start_time = time.time()
-next_obs = envs.reset()
-next_obs = torch.Tensor(next_obs).to(device)
-next_done = torch.zeros(num_envs).to(device)
-rollout_buffer.initialize_target_shapes(obs = next_obs, action = agent.get_action_logprob_entropy(next_obs)[0])
+next_obs, next_done = torch.Tensor(envs.reset()).to(device), torch.zeros(num_envs).to(device)
+
 for iteration in range(1, num_iterations + 1):
     # Annealing the rate if instructed to do so.
     if anneal_lr:

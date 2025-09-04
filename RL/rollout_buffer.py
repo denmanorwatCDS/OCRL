@@ -13,11 +13,11 @@ class OCRolloutBuffer():
         self.observation_qty, self.trajs_deleted, self.num_parallel_envs = 0, 0, num_parallel_envs
         self.initialize_trajectories()
         
-    def initialize_target_shapes(self, obs, action):
+    def initialize_target_shapes(self, obs_shape, action_shape):
         self.target_shapes = {'reward': (1,), 'done': (1,), 'logprob': (1,),
                               'value': (1,), 'advantage': (1,), 'return': (1,)}
-        self.target_shapes['obs'] = obs.shape
-        self.target_shapes['action'] = action.shape
+        self.target_shapes['obs'] = obs_shape
+        self.target_shapes['action'] = action_shape
 
     def initialize_trajectories(self):
         self._trajectories = {'obs': [[] for i in range(self.num_parallel_envs)], 
