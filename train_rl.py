@@ -97,65 +97,70 @@ agent = Policy(envs.observation_space.shape[-1], action_space_size, is_action_di
                actor_mlp = [64, 64], actor_act = 'Tanh', critic_mlp = [64, 64], critic_act = 'Tanh',
                pooler_config = {'name': 'IdentityPooler'}).to(device)
 optimizer = optim.Adam(agent.parameters(), lr = learning_rate, eps = 1e-5)
+rollout_buffer = OCRolloutBuffer(gamma = gamma, gae_lambda = gae_lambda, device = device, seed = seed,
+                                 num_parallel_envs = num_envs, memory_size = 50_000)
 
 # TRY NOT TO MODIFY: start the game
 global_step = 0
 start_time = time.time()
-next_obs = torch.Tensor(envs.reset()).to(device)
+next_obs = envs.reset()
+next_obs = torch.Tensor(next_obs).to(device)
 next_done = torch.zeros(num_envs).to(device)
-example_obs, example_action = next_obs[0], infer_action(envs)
-    
-rollout_buffer = OCRolloutBuffer(gamma = gamma, gae_lambda = gae_lambda, device = device, 
-                                 seed = seed, num_parallel_envs = next_obs.shape[0], 
-                                 memory_size = 50_000)
-rollout_buffer.initialize_target_shapes(example_obs, example_action)
+rollout_buffer.initialize_target_shapes(obs = next_obs, action = agent.get_action_logprob_entropy(next_obs)[0])
 for iteration in range(1, num_iterations + 1):
     # Annealing the rate if instructed to do so.
     if anneal_lr:
         frac = 1.0 - (iteration - 1.0) / num_iterations
         lrnow = frac * learning_rate
         optimizer.param_groups[0]["lr"] = lrnow
-
     for step in range(0, num_steps):
         global_step += num_envs
         # ALGO LOGIC: action logic
         with torch.no_grad():
             action, logprob, entropy = agent.get_action_logprob_entropy(next_obs)
             value = agent.get_value(next_obs)
-            transition = {'obs': next_obs, 'done': next_done, 
-                          'value': value.detach(), 'action': action, 
-                          'logprob': logprob.detach()}
-
+        tran = {'obs': next_obs, 'done': next_done, 'action': action, 'logprob': logprob, 'value': value}
         # TRY NOT TO MODIFY: execute the game and log data.
         next_obs, reward, next_done, infos = envs.step(action.cpu().numpy())
-        transition['reward'] = torch.tensor(reward).to(device).view(-1)
-        rollout_buffer.save_transition(tran_dict = transition)
+        tran['reward'] = torch.Tensor(reward).to(device)
+        rollout_buffer.save_transition(tran)
         next_obs, next_done = torch.Tensor(next_obs).to(device), torch.Tensor(next_done).to(device)
         if torch.any(next_done):
             for i, info in enumerate(infos):
                 if next_done[i] and "episode" in info:
                     print(f"global_step={global_step}, episodic_return={info['episode']['r']}")
-                    experiment.log_metric(name = "charts/episodic_return", value = info["episode"]["r"], step = global_step)
-                    experiment.log_metric(name = "charts/episodic_length", value = info["episode"]["l"], step = global_step)
+                    experiment.log_metric("charts/episodic_return", info["episode"]["r"], global_step)
+                    experiment.log_metric("charts/episodic_length", info["episode"]["l"], global_step)
     # bootstrap value if not done
     with torch.no_grad():
-        next_value = agent.get_value(next_obs).detach()
-    rollout_buffer.finalize_tensors_calculate_and_store_GAE(last_done = next_done, last_value = next_value)
-    
+        next_value = agent.get_value(next_obs).reshape(1, -1)
+    rollout_buffer.finalize_tensors_calculate_and_store_GAE(last_done = next_done, 
+                                                            last_value = next_value)
+    # flatten the batch
+    b_obs = rollout_buffer._trajectories['obs'].reshape((-1,) + envs.single_observation_space.shape)
+    b_logprobs = rollout_buffer._trajectories['logprob'].reshape(-1)
+    b_actions = rollout_buffer._trajectories['action'].reshape((-1,) + envs.single_action_space.shape)
+    b_advantages = rollout_buffer._trajectories['advantage'].reshape(-1)
+    b_returns = rollout_buffer._trajectories['return'].reshape(-1)
+    b_values = rollout_buffer._trajectories['value'].reshape(-1)
     # Optimizing the policy and value network
+    b_inds = np.arange(batch_size)
     clipfracs = []
     for epoch in range(update_epochs):
-        for batch in rollout_buffer.convert_transitions_to_rollout(batch_size = minibatch_size):
-            _, newlogprob, entropy = agent.get_action_logprob_entropy(batch['obs'], batch['action'])
-            newvalue = agent.get_value(batch['obs'])
-            logratio = newlogprob - batch['logprob']
+        np.random.shuffle(b_inds)
+        for start in range(0, batch_size, minibatch_size):
+            end = start + minibatch_size
+            mb_inds = b_inds[start:end]
+            _, newlogprob, entropy = agent.get_action_logprob_entropy(b_obs[mb_inds], b_actions[mb_inds])
+            newvalue = agent.get_value(b_obs[mb_inds])
+            logratio = newlogprob - b_logprobs[mb_inds]
             ratio = logratio.exp()
             with torch.no_grad():
                 # calculate approx_kl http://joschu.net/blog/kl-approx.html
                 old_approx_kl = (-logratio).mean()
                 approx_kl = ((ratio - 1) - logratio).mean()
                 clipfracs += [((ratio - 1.0).abs() > clip_coef).float().mean().item()]
-            mb_advantages = batch['advantage']
+            mb_advantages = b_advantages[mb_inds]
             if norm_adv:
                 mb_advantages = (mb_advantages - mb_advantages.mean()) / (mb_advantages.std() + 1e-8)
             # Policy loss
@@ -165,16 +170,17 @@ for iteration in range(1, num_iterations + 1):
             # Value loss
             newvalue = newvalue.view(-1)
             if clip_vloss:
-                v_loss_unclipped = (newvalue - batch['return']) ** 2
-                v_clipped = batch['value'] + torch.clamp(
-                    newvalue - batch['value'],
-                    -clip_coef, clip_coef,
+                v_loss_unclipped = (newvalue - b_returns[mb_inds]) ** 2
+                v_clipped = b_values[mb_inds] + torch.clamp(
+                    newvalue - b_values[mb_inds],
+                    -clip_coef,
+                    clip_coef,
                 )
-                v_loss_clipped = (v_clipped - batch['return']) ** 2
+                v_loss_clipped = (v_clipped - b_returns[mb_inds]) ** 2
                 v_loss_max = torch.max(v_loss_unclipped, v_loss_clipped)
                 v_loss = 0.5 * v_loss_max.mean()
             else:
-                v_loss = 0.5 * ((newvalue - batch['return']) ** 2).mean()
+                v_loss = 0.5 * ((newvalue - b_returns[mb_inds]) ** 2).mean()
             entropy_loss = entropy.mean()
             loss = pg_loss - ent_coef * entropy_loss + v_loss * vf_coef
             optimizer.zero_grad()
@@ -183,12 +189,11 @@ for iteration in range(1, num_iterations + 1):
             optimizer.step()
         if target_kl is not None and approx_kl > target_kl:
             break
-    rollout_buffer.reset_trajectories()
 
-    y_pred, y_true = rollout_buffer.get_key('value').cpu().numpy(), rollout_buffer.get_key('return').cpu().numpy()
+    rollout_buffer.reset_trajectories()
+    y_pred, y_true = b_values.cpu().numpy(), b_returns.cpu().numpy()
     var_y = np.var(y_true)
     explained_var = np.nan if var_y == 0 else 1 - np.var(y_true - y_pred) / var_y
-
     # TRY NOT TO MODIFY: record rewards for plotting purposes
     experiment.log_metric(name = "charts/learning_rate", value = optimizer.param_groups[0]["lr"], step = global_step)
     experiment.log_metric(name = "losses/value_loss", value = v_loss.item(), step = global_step)
