@@ -136,31 +136,21 @@ for iteration in range(1, num_iterations + 1):
         next_value = agent.get_value(next_obs).reshape(1, -1)
     rollout_buffer.finalize_tensors_calculate_and_store_GAE(last_done = next_done, 
                                                             last_value = next_value)
-    # flatten the batch
-    b_obs = rollout_buffer._trajectories['obs'].reshape((-1,) + envs.single_observation_space.shape)
-    b_logprobs = rollout_buffer._trajectories['logprob'].reshape(-1)
-    b_actions = rollout_buffer._trajectories['action'].reshape((-1,) + envs.single_action_space.shape)
-    b_advantages = rollout_buffer._trajectories['advantage'].reshape(-1)
-    b_returns = rollout_buffer._trajectories['return'].reshape(-1)
-    b_values = rollout_buffer._trajectories['value'].reshape(-1)
     # Optimizing the policy and value network
     b_inds = np.arange(batch_size)
     clipfracs = []
     for epoch in range(update_epochs):
-        np.random.shuffle(b_inds)
-        for start in range(0, batch_size, minibatch_size):
-            end = start + minibatch_size
-            mb_inds = b_inds[start:end]
-            _, newlogprob, entropy = agent.get_action_logprob_entropy(b_obs[mb_inds], b_actions[mb_inds])
-            newvalue = agent.get_value(b_obs[mb_inds])
-            logratio = newlogprob - b_logprobs[mb_inds]
+        for batch in rollout_buffer.convert_transitions_to_rollout(batch_size = minibatch_size):
+            _, newlogprob, entropy = agent.get_action_logprob_entropy(batch['obs'], batch['action'])
+            newvalue = agent.get_value(batch['obs'])
+            logratio = newlogprob - batch['logprob']
             ratio = logratio.exp()
             with torch.no_grad():
                 # calculate approx_kl http://joschu.net/blog/kl-approx.html
                 old_approx_kl = (-logratio).mean()
                 approx_kl = ((ratio - 1) - logratio).mean()
                 clipfracs += [((ratio - 1.0).abs() > clip_coef).float().mean().item()]
-            mb_advantages = b_advantages[mb_inds]
+            mb_advantages = batch['advantage']
             if norm_adv:
                 mb_advantages = (mb_advantages - mb_advantages.mean()) / (mb_advantages.std() + 1e-8)
             # Policy loss
@@ -170,17 +160,17 @@ for iteration in range(1, num_iterations + 1):
             # Value loss
             newvalue = newvalue.view(-1)
             if clip_vloss:
-                v_loss_unclipped = (newvalue - b_returns[mb_inds]) ** 2
-                v_clipped = b_values[mb_inds] + torch.clamp(
-                    newvalue - b_values[mb_inds],
+                v_loss_unclipped = (newvalue - batch['return']) ** 2
+                v_clipped = batch['value'] + torch.clamp(
+                    newvalue - batch['value'],
                     -clip_coef,
                     clip_coef,
                 )
-                v_loss_clipped = (v_clipped - b_returns[mb_inds]) ** 2
+                v_loss_clipped = (v_clipped - batch['return']) ** 2
                 v_loss_max = torch.max(v_loss_unclipped, v_loss_clipped)
                 v_loss = 0.5 * v_loss_max.mean()
             else:
-                v_loss = 0.5 * ((newvalue - b_returns[mb_inds]) ** 2).mean()
+                v_loss = 0.5 * ((newvalue - batch['return']) ** 2).mean()
             entropy_loss = entropy.mean()
             loss = pg_loss - ent_coef * entropy_loss + v_loss * vf_coef
             optimizer.zero_grad()
@@ -191,7 +181,7 @@ for iteration in range(1, num_iterations + 1):
             break
 
     rollout_buffer.reset_trajectories()
-    y_pred, y_true = b_values.cpu().numpy(), b_returns.cpu().numpy()
+    y_pred, y_true = batch['value'].cpu().numpy(), batch['return'].cpu().numpy()
     var_y = np.var(y_true)
     explained_var = np.nan if var_y == 0 else 1 - np.var(y_true - y_pred) / var_y
     # TRY NOT TO MODIFY: record rewards for plotting purposes
