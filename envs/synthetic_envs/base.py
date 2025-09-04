@@ -398,7 +398,7 @@ class BaseEnv:
                 zero_padding_size = self._num_objs_range[1] + 2 - masks.shape[0]
                 if zero_padding_size > 0:
                     zero_padding = np.zeros((zero_padding_size, self._obs_size, self._obs_size, 1))
-                    masks = np.concatenate([masks[:-1], zero_padding, masks[-1:]], axis=0)
+                    masks = np.concatenate([masks, zero_padding], axis=0)
             return masks
         else:
             return self._draw_objs(self._objs, mode)

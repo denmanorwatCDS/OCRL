@@ -1,6 +1,7 @@
 import numpy as np
 import hydra
 import omegaconf
+import torch
 
 from comet_ml import Experiment
 from torch.utils.data import DataLoader
@@ -37,13 +38,16 @@ def evaluate_model(model, val_dataloader):
 
                 if 'masks' in batch.keys():
                     true_masks = batch['masks'][0]
+                    if 'true_masks' not in attn_images.keys():
+                        attn_images['true_masks'] = []
                     attn_images['true_masks'].append(true_masks * 255)
 
         if 'masks' in batch.keys():
-            orig_masks = batch['masks']
-            fg_masks = (1 - orig_masks[:, -1])
-            for name, mask in mets['masks']:
-                mask, fg_mask = mask, mask * fg_masks
+            orig_masks = batch['masks'].to(torch.uint8)
+            fg_masks = (1 - orig_masks[:, -2: -1])
+            for name, mask in mets['masks'].items():
+                mask = torch.permute(mask, (0, 1, 3, 4, 2))
+                fg_mask = mask * fg_masks
                 if name not in ari_dict.keys():
                     ari_dict[name] = {'ari': [calculate_ari(orig_masks, mask)],
                                       'fg-ari': [calculate_ari(orig_masks, fg_mask, foreground = True)]}
@@ -139,7 +143,8 @@ def main(config):
     train_dataset = H5Dataset(datafile = config.data_path, uint_to_float = uint_to_float, augment = augment, is_train = True)
     val_dataset = H5Dataset(datafile = config.data_path, uint_to_float = uint_to_float, augment = None, is_train = False)
     train_dataloader = DataLoader(train_dataset, batch_size = config.ocr.batch_size,
-                                  shuffle = True, num_workers = 4, prefetch_factor = 1)
+                                  shuffle = True, num_workers = 4, prefetch_factor = 1, 
+                                  drop_last = True)
     val_dataloader = DataLoader(val_dataset, batch_size = config.ocr.batch_size, shuffle = False)
     
     model = getattr(ocrs, config.ocr.name)(config.ocr, config.env)

@@ -9,7 +9,6 @@ from PIL import Image
 
 from .cw import MyCausalWorld
 
-
 def CwTargetEnv(config, seed):
     np.random.seed(seed)
     assert config.mode in ["easy", "hard"]  # no normal for now
@@ -96,6 +95,7 @@ class SingleFingerCausalWorldWrapper(gym.Wrapper):
         super().__init__(env)
         self.env = env
         self._config = config
+        self.check_collisions = config.check_collisions
         self._COLORS = self._config.COLORS
         if len(self._config.target) > 0:
             self._target_color = self._config.target[0]
@@ -150,11 +150,15 @@ class SingleFingerCausalWorldWrapper(gym.Wrapper):
                 return False
             return True
 
-        def _check_collision(new_position, old_positions):
-            for p in old_positions:
-                if _pair_has_collision(new_position, p):
-                    return True
-            return False
+        if self.check_collisions:
+            def _check_collision(new_position, old_positions):
+                for p in old_positions:
+                    if _pair_has_collision(new_position, p):
+                        return True
+                return False
+        else:
+            def _check_collision(new_position, old_positions):
+                return False
 
         cart_positions = []
         for _ in range(self.num_objects):

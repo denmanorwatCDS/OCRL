@@ -8,7 +8,7 @@ class PatchedAtariPreprocessing(AtariPreprocessing):
         # NoopReset
         self.env.reset(**kwargs)
         noops = (
-            self.env.unwrapped.np_random.integers(1, self.noop_max + 1)
+            self.env.unwrapped.np_random.integers(14, 20)
             if self.noop_max > 0
             else 0
         )
@@ -31,11 +31,11 @@ class Pong(gym.Env):
         # See https://gymnasium.farama.org/v0.26.3/environments/atari/
         # Due to the usage of AtariPreprocessing, disable frameskip in original env
         self.env = gym.make('ALE/Pong-v5', obs_type='rgb', full_action_space='false', 
-                            render_mode='rgb_array')
+                            render_mode='rgb_array', frameskip=4)
         self.env = PatchedAtariPreprocessing(self.env, screen_size=config['obs_size'], 
                                              grayscale_obs=False, frame_skip=1)
-        self.env.reset(seed=seed)
         self.obs_size = config['obs_size']
+        self._num_objects = 3
 
     def step(self, action):
         return self.env.step(action)
@@ -48,7 +48,7 @@ class Pong(gym.Env):
         obs[:34, :] = np.array([144, 72, 17])
         obs[194:210, :] = np.array([144, 72, 17])
         obs_resized = cv2.resize(obs, (self.obs_size, self.obs_size), interpolation=cv2.INTER_NEAREST_EXACT)
-        classes = np.unique(np.reshape(obs_resized, (-1, 3)), axis=0)
+        classes = np.unique(np.reshape(obs, (-1, 3)), axis=0)
         # Move background class to last
         rearanged_classes = []
         for class_type in classes:

@@ -10,3 +10,4 @@ num_stacked_obss: 1
 obs_size: 64
 obs_channels: 3
 task: "target"
+check_collisions: True
