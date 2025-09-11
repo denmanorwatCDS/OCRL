@@ -9,7 +9,7 @@ from torch import nn, optim
 from RL.policy import Policy
 from RL.rollout_buffer import OCRolloutBuffer
 
-env_id = "CartPole-v1" # "HalfCheetah-v3" "CartPole-v1"
+env_id = "HalfCheetah-v3" # "HalfCheetah-v3" "CartPole-v1"
 capture_video = False
 run_name = 'CheetahTest'
 gamma = 0.99
@@ -156,7 +156,6 @@ for iteration in range(1, num_iterations + 1):
             pg_loss2 = -mb_advantages * torch.clamp(ratio, 1 - clip_coef, 1 + clip_coef)
             pg_loss = torch.max(pg_loss1, pg_loss2).mean()
             # Value loss
-            newvalue = newvalue.view(-1)
             if clip_vloss:
                 v_loss_unclipped = (newvalue - batch['return']) ** 2
                 v_clipped = batch['value'] + torch.clamp(
