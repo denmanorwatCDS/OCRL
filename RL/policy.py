@@ -47,23 +47,30 @@ class Policy(nn.Module):
         return self.pooler(slots)
 
     def get_value(self, slots):
-        return self.critic_net(self._convert_slots_to_rep(slots))
+        return self.critic_net(self._convert_slots_to_rep(slots)).squeeze(axis = -2)
     
     def get_action_distribution(self, slots):
         actor_out = self.actor_net(self._convert_slots_to_rep(slots))
+        actor_out = torch.unsqueeze(actor_out, dim = 1)
         if self.is_action_discrete:
             return Categorical(logits = actor_out)
         else:
             std = torch.exp(self.logstd.expand_as(actor_out))
             return Normal(loc = actor_out, scale = std)
     
+    # TODO check logit shape. It must be of the shape: batch x actions
     def get_action_logprob_entropy(self, slots, action = None):
         dist = self.get_action_distribution(slots)
         if action is None:
             action = dist.sample()
+        elif not (action is None) and not self.is_action_discrete:
+            action = torch.unsqueeze(action, axis = -2)
         # TODO check if log_prob is implemented correctly, 
         # meaning in discrete case it must return batch of logprobs and batch of entropies
         if self.is_action_discrete:
-            return action, dist.log_prob(action), dist.entropy()
+            return action.squeeze(dim = -2), dist.log_prob(action).squeeze(dim = -2),\
+                dist.entropy().squeeze(dim = -2)
         else:
-            return action, dist.log_prob(action).sum(1), dist.entropy().sum(1)
+            return action.squeeze(dim = -2), dist.log_prob(action).sum(-1).squeeze(dim = -2),\
+                dist.entropy().sum(-1).squeeze(dim = -2)
+        

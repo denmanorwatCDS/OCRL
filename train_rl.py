@@ -1,15 +1,15 @@
+from comet_ml import Experiment
 import torch
 import gym
 import random, time
 
 import numpy as np
 from torch import nn, optim
-from comet_ml import Experiment
 
 from RL.policy import Policy
 from RL.rollout_buffer import OCRolloutBuffer
 
-env_id =  "CartPole-v1" # "HalfCheetah-v3"
+env_id = "CartPole-v1" # "HalfCheetah-v3" "CartPole-v1"
 capture_video = False
 run_name = 'CheetahTest'
 gamma = 0.99
@@ -62,22 +62,22 @@ def make_env(env_id, idx, capture_video, run_name, gamma):
 
 def infer_obs_action_shape(envs):
     # Due to vectorization, env will be represented by spaces.tuple.Tuple
-    
+    # Don't work with single_observation_space, works with observation_space
     obs_shape = envs.single_observation_space.shape
     if isinstance(envs.single_action_space, gym.spaces.discrete.Discrete):
         is_discrete = True
         agent_action_data = envs.single_action_space.n
         action_shape = (1,)    
-    elif isinstance(envs.action_space[i], gym.spaces.Box):
+    elif isinstance(envs.single_action_space, gym.spaces.Box):
         is_discrete = False
         act = envs.single_action_space.sample()
-        agent_action_data, action_shape = act.shape, act.shape
+        assert len(act.shape) == 1, 'It is expected that action is a continuous vector'
+        agent_action_data, action_shape = act.shape[0], act.shape
 
     if action_shape is None:
         assert False, 'WhatDaFaq?'
 
     return obs_shape, is_discrete, agent_action_data, action_shape
-        
 
 random.seed(seed)
 np.random.seed(seed)
@@ -90,7 +90,8 @@ envs = gym.vector.SyncVectorEnv(
 )
 
 obs_shape, is_discrete, agent_action_data, action_shape = infer_obs_action_shape(envs)
-agent = Policy(obs_shape[0], agent_action_data, is_action_discrete = is_discrete, 
+# assert len(obs_shape) in [1, 3], 'It is expected that observations are either images (3d) or vectors (1d)'
+agent = Policy(observation_size = obs_shape[-1], action_size = agent_action_data, is_action_discrete = is_discrete, 
                actor_mlp = [64, 64], actor_act = 'Tanh', critic_mlp = [64, 64], critic_act = 'Tanh',
                pooler_config = {'name': 'IdentityPooler'}).to(device)
 rollout_buffer = OCRolloutBuffer(gamma = gamma, gae_lambda = gae_lambda, device = device, seed = seed,
@@ -177,8 +178,9 @@ for iteration in range(1, num_iterations + 1):
         if target_kl is not None and approx_kl > target_kl:
             break
 
+    y_true, y_pred = rollout_buffer.get_return_value()
+    y_true, y_pred = y_true.cpu().numpy(), y_pred.cpu().numpy()
     rollout_buffer.reset_trajectories()
-    y_pred, y_true = batch['value'].cpu().numpy(), batch['return'].cpu().numpy()
     var_y = np.var(y_true)
     explained_var = np.nan if var_y == 0 else 1 - np.var(y_true - y_pred) / var_y
     # TRY NOT TO MODIFY: record rewards for plotting purposes

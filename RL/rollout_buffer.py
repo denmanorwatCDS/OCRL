@@ -90,6 +90,9 @@ class OCRolloutBuffer():
         
         return batch_generator()
     
+    def get_return_value(self):
+        return self._trajectories['return'], self._trajectories['value']
+    
     def reset_trajectories(self):
         self.initialize_trajectories()
         
