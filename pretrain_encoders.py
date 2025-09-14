@@ -1,7 +1,6 @@
 import numpy as np
 import hydra
 import omegaconf
-import torch
 
 from comet_ml import Experiment
 from torch.utils.data import DataLoader
@@ -10,81 +9,7 @@ from oc import ocrs
 from oc.optimizer.optimizer import OCOptimizer
 from data_utils.H5_dataset import H5Dataset
 
-from utils.eval_tools import calculate_ari
-
-def evaluate_model(model, val_dataloader):
-    # OCR logging
-    model.inference_mode()
-    for j, batch in enumerate(val_dataloader):
-        if j > 50:
-            break
-        mets = model.calculate_validation_data(batch['obss'].cuda())
-        if j == 0:
-            precalc_data, ari_dict, recon_images, attn_images = {}, {}, [], {}
-            for key in mets['masks'].keys():
-                attn_images[key] = []
-
-        if j < 7:
-            if 'reconstructions' in mets.keys():
-                imgs = []
-                for key, value in mets['reconstructions'].items():
-                    imgs.append(value[0])
-                imgs.append(model.convert_tensor_to_img(batch['obss'][0]))
-                recon_images.append(np.concatenate(imgs, axis = 1))
-            
-            if 'masked_imgs' in mets.keys():
-                for key, value in mets['masked_imgs'].items():
-                    attn_images[key].append(value[0])
-
-                if 'masks' in batch.keys():
-                    true_masks = batch['masks'][0]
-                    if 'true_masks' not in attn_images.keys():
-                        attn_images['true_masks'] = []
-                    attn_images['true_masks'].append(true_masks * 255)
-
-        if 'masks' in batch.keys():
-            orig_masks = batch['masks'].to(torch.uint8)
-            fg_masks = (1 - orig_masks[:, -2: -1])
-            for name, mask in mets['masks'].items():
-                mask = torch.permute(mask, (0, 1, 3, 4, 2))
-                fg_mask = mask * fg_masks
-                if name not in ari_dict.keys():
-                    ari_dict[name] = {'ari': [calculate_ari(orig_masks, mask)],
-                                      'fg-ari': [calculate_ari(orig_masks, fg_mask, foreground = True)]}
-                else:
-                    ari_dict[name]['ari'].append(calculate_ari(orig_masks, mask))
-                    ari_dict[name]['fg-ari'].append(calculate_ari(orig_masks, mask))
-
-        for key in mets.keys():
-            if key not in ['masks', 'masked_imgs', 'reconstructions']:
-                if key not in precalc_data.keys():
-                    precalc_data[key] = []
-                precalc_data[key].append(mets[key])
-                
-    logs = {key: np.mean(val) for key, val in precalc_data.items()}
-    for mask in ari_dict.keys():
-        for metric in ari_dict[mask].keys():
-            logs[f'{mask}: {metric}'] = np.mean(ari_dict[mask][metric])
-    
-    if recon_images:
-        imgs = {'observations': np.concatenate(recon_images, axis = 0)}
-
-    max_width = -1
-    for name, masks in attn_images.items():
-        for elem in masks:
-            max_width = max(max_width, elem.shape[0])
-    
-    for name, masks in attn_images.items():
-        for i in range(len(masks)):
-            attn_images[name][i] = np.pad(masks[i], ((0, max_width - masks[i].shape[0]), (0, 0), (0, 0), (0, 0)))
-        attn_images[name] = np.concatenate(attn_images[name], axis = 1)
-        attn_images[name] = np.transpose(attn_images[name], (1, 0, 2, 3))
-        attn_images[name] = np.reshape(attn_images[name], (attn_images[name].shape[0], 
-                                                           attn_images[name].shape[1] * attn_images[name].shape[2],
-                                                           attn_images[name].shape[3]))
-        imgs[name] = attn_images[name]
-    model.training_mode()
-    return logs, imgs
+from utils.eval_tools import evaluate_ocr_model
 
 @hydra.main(config_path="configs/", config_name="train_sb3")
 def main(config):
@@ -114,31 +39,6 @@ def main(config):
 
     min_val, max_val = config.ocr.image_limits[0], config.ocr.image_limits[1]
     uint_to_float = lambda x: (x.astype(np.float32) / 255 * (max_val - min_val) + min_val)
-    
-    # TODO add coco tests for FT-DINOSAUR
-    """
-    if '/coco_2017' in config.data_path:
-        train_img_augs = Compose([RandomHorizontalFlip(p = 0.5), 
-                                  ShortestSizeResize(size = config.env.obs_size, mode='bicubic'), 
-                                  CenterCrop(size = config.env.obs_size),
-                                  Renorm()])
-        val_img_augs = Compose([ShortestSizeResize(size = config.env.obs_size, mode = 'bicubic'),
-                                CenterCrop(size = config.env.obs_size),
-                                Renorm()])
-    
-        val_mask_augs = Compose([ShortestSizeResize(size = config.env.obs_size, mode = 'nearest-exact'),
-                                 CenterCrop(size = config.env.obs_size)])
-        train_dataset = CoCoDataset(image_dir = config.data_path + '/train2017_img', mask_dir = None,
-                                    img_transform = train_img_augs, mask_transform = None)
-        val_dataset = CoCoDataset(image_dir = config.data_path + '/val2017_img', 
-                                  mask_dir = config.data_path + '/val2017_instance',
-                                  img_transform = val_img_augs, mask_transform = val_mask_augs)
-        train_dataloader = DataLoader(train_dataset, batch_size = config.ocr.batch_size,
-                                      shuffle = True, num_workers = 4, prefetch_factor = 1)
-        val_dataloader = DataLoader(val_dataset, batch_size = config.ocr.batch_size,
-                                    shuffle = False)
-    else:
-    """
 
     train_dataset = H5Dataset(datafile = config.data_path, uint_to_float = uint_to_float, augment = augment, is_train = True)
     val_dataset = H5Dataset(datafile = config.data_path, uint_to_float = uint_to_float, augment = None, is_train = False)
@@ -164,7 +64,7 @@ def main(config):
                 experiment.log_metrics(mets, step = i)
 
             if (i % 1_000 == 0):
-                logs, imgs = evaluate_model(model = model, val_dataloader = val_dataloader)
+                logs, imgs = evaluate_ocr_model(model = model, val_dataloader = val_dataloader)
                 experiment.log_metrics({f'val/{key}': logs[key] for key in logs.keys()}, step = i)
                 for key in imgs.keys():
                     experiment.log_image(image_data = imgs[key], name = f'val/{key}', 

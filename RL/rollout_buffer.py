@@ -59,6 +59,7 @@ class OCRolloutBuffer():
     def finalize_tensors_calculate_and_store_GAE(self, last_done, last_value):
         self._update_observations()
         self._convert_trajectories_for_training()
+        last_done = torch.unsqueeze(last_done, dim=-1)
         advantages = torch.zeros_like(self._trajectories['reward']).to(self.device)
         lastgaelam = 0
         for t in reversed(range(self._trajectories['obs'].shape[1])):

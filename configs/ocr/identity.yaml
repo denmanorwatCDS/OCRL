@@ -1,0 +1,12 @@
+name: Identity
+image_limits: [0, 1]
+
+optimizer:
+  identity_optimizer:
+    lr: 0.0003
+    gradient_clip_val: 1.
+    weight_decay: 0.0
+    lr_scheduler:
+      type: cosine
+      warmup_steps: 20_000
+      decay_steps: 1_300_000

@@ -74,3 +74,5 @@ class Policy(nn.Module):
             return action.squeeze(dim = -2), dist.log_prob(action).sum(-1).squeeze(dim = -2),\
                 dist.entropy().sum(-1).squeeze(dim = -2)
         
+    def get_paramwise_lr(self):
+        return {'policy': None}

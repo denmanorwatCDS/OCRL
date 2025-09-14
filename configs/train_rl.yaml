@@ -4,9 +4,8 @@ defaults:
   - ocr: ???
   - pooling: ???
   - sb3: ???
-  - sb3_acnet: ???
   - env: ???
-  - comet: train_sb3
+  - comet: train_rl
 
 max_steps: 2e6
 
@@ -24,4 +23,4 @@ eval:
 
 hydra:
   run:
-    dir: ./outputs/train_sb3/${ocr.name}-${pooling.name}-${sb3.name}-${env.name}/hydra/${now:%Y-%m-%d_%H-%M-%S}
+    dir: ./outputs/train_rl/${ocr.name}-${pooling.name}-${sb3.name}-${env.name}/hydra/${now:%Y-%m-%d_%H-%M-%S}

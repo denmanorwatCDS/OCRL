@@ -1,6 +1,5 @@
 defaults:
     - _base
     - _self_
-    - _api
 
-project: ocrl-rl
+name: IdentityPooler

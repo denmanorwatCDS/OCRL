@@ -1,195 +1,133 @@
 from comet_ml import Experiment
+
 import torch
+import hydra
+import omegaconf
 import gym
 import random, time
 
 import numpy as np
-from torch import nn, optim
 
+from oc import ocrs
+from oc.optimizer.optimizer import OCOptimizer
 from RL.policy import Policy
 from RL.rollout_buffer import OCRolloutBuffer
+from utils.train_tools import infer_obs_action_shape, make_env
 
-env_id = "HalfCheetah-v3" # "HalfCheetah-v3" "CartPole-v1"
-capture_video = False
-run_name = 'CheetahTest'
-gamma = 0.99
-gae_lambda = 0.95
-num_envs = 1
-num_steps = 2048
-learning_rate = 3e-4
-seed = 1
-total_timesteps = int(1e6)
-anneal_lr = True
-update_epochs = 10
-num_minibatches = 32
-clip_coef = 0.2
-norm_adv = True
-clip_vloss = True
-ent_coef = 0.
-vf_coef = 0.5
-max_grad_norm = 0.5
-target_kl = None
-
-batch_size = int(num_envs * num_steps)
-num_iterations = total_timesteps // batch_size
-minibatch_size = int(batch_size // num_minibatches)
-
-experiment = Experiment(
-    api_key = 'bbCMVUhDwSJsEqwcmhZ2MXdfE',
-    project_name = 'test_PPO_cleanRL',
-    workspace = 'denmanorwat'
+@hydra.main(config_path="configs/", config_name="train_rl")
+def main(config):
+    experiment = Experiment(
+        api_key = 'bbCMVUhDwSJsEqwcmhZ2MXdfE',
+        project_name = 'test_PPO_cleanRL',
+        workspace = 'denmanorwat'
+        )
+    
+    if config.num_envs == 1:
+        envs = gym.vector.SyncVectorEnv(
+        [lambda: make_env(config.env, gamma = config.sb3.gamma, 
+                          ocr_min_val = config.ocr.image_limits[0], ocr_max_val = config.ocr.image_limits[1], 
+                          seed = config.seed)]
     )
+    else:
+        envs = gym.vector.AsyncVectorEnv(
+            [lambda rank = i: make_env(config.env, gamma = config.sb3.gamma, 
+                                       ocr_min_val = config.ocr.image_limits[0], ocr_max_val = config.ocr.image_limits[1], 
+                                       seed = config.seed, rank = rank) for i in range(config.num_envs)],
+                                       context = 'fork')
 
-def make_env(env_id, idx, capture_video, run_name, gamma):
-    def thunk():
-        if capture_video and idx == 0:
-            env = gym.make(env_id, render_mode="rgb_array")
-            env = gym.wrappers.RecordVideo(env, f"videos/{run_name}")
-        else:
-            env = gym.make(env_id)
-        if 'Cheetah' in env_id:
-            env = gym.wrappers.FlattenObservation(env)  # deal with dm_control's Dict observation space
-            env = gym.wrappers.RecordEpisodeStatistics(env)
-            env = gym.wrappers.ClipAction(env)
-            env = gym.wrappers.NormalizeObservation(env)
-            env = gym.wrappers.TransformObservation(env, lambda obs: np.clip(obs, -10, 10))
-            env = gym.wrappers.NormalizeReward(env, gamma=gamma)
-            env = gym.wrappers.TransformReward(env, lambda reward: np.clip(reward, -10, 10))
-        else:
-            env = gym.wrappers.RecordEpisodeStatistics(env)
-        return env
-    return thunk
+    random.seed(config.seed)
+    np.random.seed(config.seed)
+    torch.manual_seed(config.seed)
+    device = torch.device("cuda")
+    
+    obs_shape, is_discrete, agent_action_data, action_shape = infer_obs_action_shape(envs)
+    # assert len(obs_shape) in [1, 3], 'It is expected that observations are either images (3d) or vectors (1d)'
+    rollout_buffer = OCRolloutBuffer(gamma = config.sb3.gamma, gae_lambda = config.sb3.gae_lambda, device = device, seed = config.seed,
+                                     num_parallel_envs = config.num_envs, memory_size = 50_000)
+    rollout_buffer.initialize_target_shapes(obs_shape = obs_shape, action_shape = action_shape)
 
-def infer_obs_action_shape(envs):
-    # Due to vectorization, env will be represented by spaces.tuple.Tuple
-    # Don't work with single_observation_space, works with observation_space
-    obs_shape = envs.single_observation_space.shape
-    if isinstance(envs.single_action_space, gym.spaces.discrete.Discrete):
-        is_discrete = True
-        agent_action_data = envs.single_action_space.n
-        action_shape = (1,)    
-    elif isinstance(envs.single_action_space, gym.spaces.Box):
-        is_discrete = False
-        act = envs.single_action_space.sample()
-        assert len(act.shape) == 1, 'It is expected that action is a continuous vector'
-        agent_action_data, action_shape = act.shape[0], act.shape
+    agent = Policy(observation_size = obs_shape[-1], action_size = agent_action_data, is_action_discrete = is_discrete, 
+                   actor_mlp = [64, 64], actor_act = 'Tanh', critic_mlp = [64, 64], critic_act = 'Tanh',
+                   pooler_config = config.pooling).to(device)
+    oc_model = getattr(ocrs, config.ocr.name)(config.ocr, config.env)
+    oc_model = oc_model.to('cuda')
+    ocr_optimizer, policy_optimizer = omegaconf.OmegaConf.to_container(config.ocr.optimizer), \
+        omegaconf.OmegaConf.to_container(config.sb3.optimizer)
+    all_optimizer_config = {**ocr_optimizer, **policy_optimizer}
 
-    if action_shape is None:
-        assert False, 'WhatDaFaq?'
+    optimizer = OCOptimizer(all_optimizer_config, oc_model = oc_model, policy = agent)
 
-    return obs_shape, is_discrete, agent_action_data, action_shape
+    # TRY NOT TO MODIFY: start the game
+    global_step = 0
+    start_time = time.time()
+    next_obs, next_done = torch.Tensor(envs.reset()).to(device), torch.zeros(config.num_envs).to(device)
 
-random.seed(seed)
-np.random.seed(seed)
-torch.manual_seed(seed)
-device = torch.device("cuda")
-
-# env setup
-envs = gym.vector.SyncVectorEnv(
-    [make_env(env_id, i, capture_video, run_name, gamma) for i in range(num_envs)]
-)
-
-obs_shape, is_discrete, agent_action_data, action_shape = infer_obs_action_shape(envs)
-# assert len(obs_shape) in [1, 3], 'It is expected that observations are either images (3d) or vectors (1d)'
-agent = Policy(observation_size = obs_shape[-1], action_size = agent_action_data, is_action_discrete = is_discrete, 
-               actor_mlp = [64, 64], actor_act = 'Tanh', critic_mlp = [64, 64], critic_act = 'Tanh',
-               pooler_config = {'name': 'IdentityPooler'}).to(device)
-rollout_buffer = OCRolloutBuffer(gamma = gamma, gae_lambda = gae_lambda, device = device, seed = seed,
-                                 num_parallel_envs = num_envs, memory_size = 50_000)
-rollout_buffer.initialize_target_shapes(obs_shape = obs_shape, action_shape = action_shape)
-
-optimizer = optim.Adam(agent.parameters(), lr = learning_rate, eps = 1e-5)
-
-# TRY NOT TO MODIFY: start the game
-global_step = 0
-start_time = time.time()
-next_obs, next_done = torch.Tensor(envs.reset()).to(device), torch.zeros(num_envs).to(device)
-
-for iteration in range(1, num_iterations + 1):
-    # Annealing the rate if instructed to do so.
-    if anneal_lr:
-        frac = 1.0 - (iteration - 1.0) / num_iterations
-        lrnow = frac * learning_rate
-        optimizer.param_groups[0]["lr"] = lrnow
-    for step in range(0, num_steps):
-        global_step += num_envs
-        # ALGO LOGIC: action logic
-        with torch.no_grad():
-            action, logprob, entropy = agent.get_action_logprob_entropy(next_obs)
-            value = agent.get_value(next_obs)
-        tran = {'obs': next_obs, 'done': next_done, 'action': action, 'logprob': logprob, 'value': value}
-        # TRY NOT TO MODIFY: execute the game and log data.
-        next_obs, reward, next_done, infos = envs.step(action.cpu().numpy())
-        tran['reward'] = torch.Tensor(reward).to(device)
-        rollout_buffer.save_transition(tran)
-        next_obs, next_done = torch.Tensor(next_obs).to(device), torch.Tensor(next_done).to(device)
-        if torch.any(next_done):
-            for i, info in enumerate(infos):
-                if next_done[i] and "episode" in info:
-                    print(f"global_step={global_step}, episodic_return={info['episode']['r']}")
-                    experiment.log_metric("charts/episodic_return", info["episode"]["r"], global_step)
-                    experiment.log_metric("charts/episodic_length", info["episode"]["l"], global_step)
-    # bootstrap value if not done
-    with torch.no_grad():
-        next_value = agent.get_value(next_obs).reshape(1, -1)
-    rollout_buffer.finalize_tensors_calculate_and_store_GAE(last_done = next_done, 
-                                                            last_value = next_value)
-    # Optimizing the policy and value network
-    b_inds = np.arange(batch_size)
-    clipfracs = []
-    for epoch in range(update_epochs):
-        for batch in rollout_buffer.convert_transitions_to_rollout(batch_size = minibatch_size):
-            _, newlogprob, entropy = agent.get_action_logprob_entropy(batch['obs'], batch['action'])
-            newvalue = agent.get_value(batch['obs'])
-            logratio = newlogprob - batch['logprob']
-            ratio = logratio.exp()
+    for iteration in range(1, int(config.max_steps + 1) // config.sb3.n_steps):
+        # Annealing the rate if instructed to do so.
+        for step in range(0, config.sb3.n_steps, config.num_envs):
+            global_step += config.num_envs
+            # ALGO LOGIC: action logic
             with torch.no_grad():
-                # calculate approx_kl http://joschu.net/blog/kl-approx.html
-                old_approx_kl = (-logratio).mean()
-                approx_kl = ((ratio - 1) - logratio).mean()
-                clipfracs += [((ratio - 1.0).abs() > clip_coef).float().mean().item()]
-            mb_advantages = batch['advantage']
-            if norm_adv:
-                mb_advantages = (mb_advantages - mb_advantages.mean()) / (mb_advantages.std() + 1e-8)
-            # Policy loss
-            pg_loss1 = -mb_advantages * ratio
-            pg_loss2 = -mb_advantages * torch.clamp(ratio, 1 - clip_coef, 1 + clip_coef)
-            pg_loss = torch.max(pg_loss1, pg_loss2).mean()
-            # Value loss
-            if clip_vloss:
-                v_loss_unclipped = (newvalue - batch['return']) ** 2
-                v_clipped = batch['value'] + torch.clamp(
-                    newvalue - batch['value'],
-                    -clip_coef,
-                    clip_coef,
-                )
-                v_loss_clipped = (v_clipped - batch['return']) ** 2
-                v_loss_max = torch.max(v_loss_unclipped, v_loss_clipped)
-                v_loss = 0.5 * v_loss_max.mean()
-            else:
+                action, logprob, entropy = agent.get_action_logprob_entropy(next_obs)
+                value = agent.get_value(next_obs)
+            tran = {'obs': next_obs, 'done': next_done, 'action': action, 'logprob': logprob, 'value': value}
+            # TRY NOT TO MODIFY: execute the game and log data.
+            next_obs, reward, next_done, infos = envs.step(action.cpu().numpy())
+            tran['reward'] = torch.Tensor(reward).to(device)
+            rollout_buffer.save_transition(tran)
+            next_obs, next_done = torch.Tensor(next_obs).to(device), torch.Tensor(next_done).to(device)
+            if torch.any(next_done):
+                for i, info in enumerate(infos):
+                    if next_done[i] and "episode" in info:
+                        print(f"global_step={global_step}, episodic_return={info['episode']['r']}")
+                        experiment.log_metric("charts/episodic_return", info["episode"]["r"], global_step)
+                        experiment.log_metric("charts/episodic_length", info["episode"]["l"], global_step)
+        # bootstrap value if not done
+        with torch.no_grad():
+            next_value = agent.get_value(next_obs)
+        rollout_buffer.finalize_tensors_calculate_and_store_GAE(last_done = next_done, 
+                                                                last_value = next_value)
+        # Optimizing the policy and value network
+        clipfracs = []
+        for epoch in range(config.sb3.max_epochs):
+            for batch in rollout_buffer.convert_transitions_to_rollout(batch_size = config.sb3.batch_size):
+                _, newlogprob, entropy = agent.get_action_logprob_entropy(batch['obs'], batch['action'])
+                newvalue = agent.get_value(batch['obs'])
+                logratio = newlogprob - batch['logprob']
+                ratio = logratio.exp()
+                with torch.no_grad():
+                    # calculate approx_kl http://joschu.net/blog/kl-approx.html
+                    old_approx_kl = (-logratio).mean()
+                    approx_kl = ((ratio - 1) - logratio).mean()
+                    clipfracs += [((ratio - 1.0).abs() > config.sb3.clip_range).float().mean().item()]
+                normalized_advantages = (batch['advantage'] - batch['advantage'].mean()) / (batch['advantage'].std() + 1e-8)
+                # Policy loss
+                pg_loss1 = -normalized_advantages * ratio
+                pg_loss2 = -normalized_advantages * torch.clamp(ratio, 1 - config.sb3.clip_range, 1 + config.sb3.clip_range)
+                pg_loss = torch.max(pg_loss1, pg_loss2).mean()
                 v_loss = 0.5 * ((newvalue - batch['return']) ** 2).mean()
-            entropy_loss = entropy.mean()
-            loss = pg_loss - ent_coef * entropy_loss + v_loss * vf_coef
-            optimizer.zero_grad()
-            loss.backward()
-            nn.utils.clip_grad_norm_(agent.parameters(), max_grad_norm)
-            optimizer.step()
-        if target_kl is not None and approx_kl > target_kl:
-            break
+                entropy_loss = entropy.mean()
+                loss = pg_loss - config.sb3.ent_coef * entropy_loss + v_loss * config.sb3.vf_coef
+                optimizer.optimizer_zero_grad()
+                loss.backward()
+                optimizer.optimizer_step('rl')
 
-    y_true, y_pred = rollout_buffer.get_return_value()
-    y_true, y_pred = y_true.cpu().numpy(), y_pred.cpu().numpy()
-    rollout_buffer.reset_trajectories()
-    var_y = np.var(y_true)
-    explained_var = np.nan if var_y == 0 else 1 - np.var(y_true - y_pred) / var_y
-    # TRY NOT TO MODIFY: record rewards for plotting purposes
-    experiment.log_metric(name = "charts/learning_rate", value = optimizer.param_groups[0]["lr"], step = global_step)
-    experiment.log_metric(name = "losses/value_loss", value = v_loss.item(), step = global_step)
-    experiment.log_metric(name = "losses/policy_loss", value = pg_loss.item(), step = global_step)
-    experiment.log_metric(name = "losses/entropy", value = entropy_loss.item(), step = global_step)
-    experiment.log_metric(name = "losses/old_approx_kl", value = old_approx_kl.item(), step = global_step)
-    experiment.log_metric(name = "losses/approx_kl", value = approx_kl.item(), step = global_step)
-    experiment.log_metric(name = "losses/clipfrac", value = np.mean(clipfracs), step = global_step)
-    experiment.log_metric(name = "losses/explained_variance", value = explained_var, step = global_step)
-    print("SPS:", int(global_step / (time.time() - start_time)))
-    experiment.log_metric(name = "charts/SPS", value = int(global_step / (time.time() - start_time)), step = global_step)
+        y_true, y_pred = rollout_buffer.get_return_value()
+        y_true, y_pred = y_true.cpu().numpy(), y_pred.cpu().numpy()
+        var_y = np.var(y_true)
+        explained_var = np.nan if var_y == 0 else 1 - np.var(y_true - y_pred) / var_y
+
+        rollout_buffer.reset_trajectories()
+        # TRY NOT TO MODIFY: record rewards for plotting purposes
+        experiment.log_metric(name = "losses/value_loss", value = v_loss.item(), step = global_step)
+        experiment.log_metric(name = "losses/policy_loss", value = pg_loss.item(), step = global_step)
+        experiment.log_metric(name = "losses/entropy", value = entropy_loss.item(), step = global_step)
+        experiment.log_metric(name = "losses/old_approx_kl", value = old_approx_kl.item(), step = global_step)
+        experiment.log_metric(name = "losses/approx_kl", value = approx_kl.item(), step = global_step)
+        experiment.log_metric(name = "losses/clipfrac", value = np.mean(clipfracs), step = global_step)
+        experiment.log_metric(name = "losses/explained_variance", value = explained_var, step = global_step)
+        print("SPS:", int(global_step / (time.time() - start_time)))
+        experiment.log_metric(name = "charts/SPS", value = int(global_step / (time.time() - start_time)), step = global_step)
+
+if __name__ == "__main__":
+    main()

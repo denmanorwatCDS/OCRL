@@ -1,20 +1,27 @@
 name: 'PPO'
-algo_kwargs:
-    train_feature_extractor: true
-    freeze_feature_extractor: false
-    n_steps: 2048
-    batch_size: 32
-    learning_rate: 3e-4
-    ent_coef: 0.0
-    gamma: 0.99
-    vf_coef: 0.5
-    target_kl: null
-    clip_range: 0.2
-    bc_mult: 1.
-    ppg_mult: 2
-    train_every_rollout: 1
-    ppg_early_stopping: 0.995
-    pretrain_steps: 30_000
-    pass_only_critic_grad: false
-    normalize_policy_gradient: false
-    agent_only_slot_update: false
+train_feature_extractor: true
+freeze_feature_extractor: false
+n_steps: 2048
+max_epochs: 10
+batch_size: 32
+ent_coef: 0.0
+gamma: 0.99
+gae_lambda: 0.95
+vf_coef: 0.5
+target_kl: null
+clip_range: 0.2
+bc_mult: 1.
+ppg_mult: 2
+train_every_rollout: 1
+ppg_early_stopping: 0.995
+pretrain_steps: 30_000
+pass_only_critic_grad: false
+normalize_policy_gradient: false
+agent_only_slot_update: false
+
+optimizer:
+    policy_optimizer:
+        eps: 1e-05
+        weight_decay: 0.
+        gradient_clip_val: 0.5
+        lr: 3e-4

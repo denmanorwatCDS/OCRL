@@ -1,9 +1,3 @@
-optimizer:
-    policy_optimizer:
-        eps: 1e-05
-        weight_decay: 0.
-        gradient_clip_val: 0.5
-
 # orthogonal initalization
 ortho_init: False
 

@@ -16,7 +16,9 @@ def calculate_weight_norm(params):
             norm.append(param.detach().flatten().clone())
         else:
             norm.append(torch.zeros_like(param.detach().flatten()))
-    return torch.sum(torch.cat(norm)**2)**(1/2)
+    if norm:
+        return torch.sum(torch.cat(norm)**2)**(1/2)
+    return 0
 
 # TODO fix scheduler groups. Now there are many of them, due to implementation changes. 
 # Earlier there were 3, encoder, slot, decoder
@@ -32,7 +34,6 @@ class OCOptimizer():
         oc_modules = self.oc_model.get_grouped_parameters()
         params = {**oc_modules}
 
-        assert self.policy is None, 'Check if you supply policy optimizer parameters into self.optim_config'
         if self.policy is not None:
             params.update({'policy': self.policy.named_parameters()})
 
@@ -44,6 +45,8 @@ class OCOptimizer():
         # There could be many parameters for same optimizer
         modules_optim_kwargs = deepcopy(self.optim_config)
         modules_paramwise_lrs = self.oc_model.get_paramwise_lr()
+        if self.policy is not None:
+            modules_paramwise_lrs = {**modules_paramwise_lrs, **self.policy.get_paramwise_lr()}
         self.global_grad_clip = modules_optim_kwargs.pop('global_gradient_clip_val', None)
         self.grad_clip_type = modules_optim_kwargs.pop('grad_clip_type', 2.0)
         self.grad_clips = {key: modules_optim_kwargs[key].pop('gradient_clip_val', None) for key in\

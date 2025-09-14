@@ -5,5 +5,3 @@ defaults:
 name: 'MLP_mixer'
 dims: [128, 128]
 expand_coef: 4
-learning:
-    lr: 1e-4
