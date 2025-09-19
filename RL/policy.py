@@ -16,7 +16,7 @@ class Policy(nn.Module):
     def __init__(self, 
                  observation_size, action_size, is_action_discrete,
                  actor_mlp, actor_act, critic_mlp, critic_act,
-                 pooler_config):
+                 pooler_config, ocr_rep_dim, num_slots):
         super().__init__()
 
         self.is_action_discrete = is_action_discrete
@@ -41,7 +41,8 @@ class Policy(nn.Module):
         if not is_action_discrete:
             self.logstd = nn.Parameter(torch.zeros(1, np.prod(action_size)))
 
-        self.pooler = getattr(poolers, pooler_config['name'])(pooler_config)
+        self.pooler = getattr(poolers, pooler_config['name'])(config = pooler_config, 
+                                                              ocr_rep_dim = ocr_rep_dim, num_slots = num_slots)
 
     def _convert_slots_to_rep(self, slots):
         return self.pooler(slots)
@@ -76,3 +77,13 @@ class Policy(nn.Module):
         
     def get_paramwise_lr(self):
         return {'policy': None}
+    
+    def inference_mode(self):
+        self.eval()
+        for param in self.parameters():
+            param.requires_grad_ = False
+
+    def training_mode(self):
+        self.train()
+        for param in self.parameters():
+            param.requires_grad_ = True

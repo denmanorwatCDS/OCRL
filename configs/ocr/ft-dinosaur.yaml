@@ -2,7 +2,6 @@ name: 'FT_DINOSAUR'
 resize: false
 use_augs: true
 augment_samples: false
-obs_size: 224
 batch_size: 128
 pretrained_path: null
 dataset_folder: null
@@ -10,7 +9,7 @@ image_limits: [-1, 1]
 
 slotattr:
   num_iterations: 3
-  num_slots: 5
+  num_slots: ???
   num_slot_heads: 1
   slot_size: 64
   mlp_hidden_size: 192
@@ -19,6 +18,9 @@ slotattr:
   min_features_dropped: 0.
   max_features_dropped: 0.5
   feature_dropout_proba: 0.
+  matching_loss:
+    steps_into_future: 1
+    use: False
 
 encattr:
   backbone:
@@ -87,6 +89,3 @@ decoder:
   hidden_dims: [512, 512, 512]
   dropout_prob: 0.
   spectral_normalisation: false
-
-loss:
-  reg_coef: 0.

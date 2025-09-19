@@ -1,8 +1,7 @@
 name: 'Slot_Attention'
 
 cnn_hsize: 64
-obs_size: 64
-batch_size: 64
+batch_size: 24
 initial_size: 8
 resize: false
 use_augs: false
@@ -21,24 +20,24 @@ feature_dropout:
   max_features_dropped: 0.5
   feature_dropout_proba: 0.
 
-loss:
-  reg_coef: 0.
-
 slotattr:
-  num_iterations: 3
-  num_slots: 5
+  num_iterations: 7
+  num_slots: ???
   num_slot_heads: 1
-  slot_size: 192
+  slot_size: 64
   mlp_hidden_size: 192
   pos_channels: 4
   preinit_type: classic
+  matching_loss:
+    steps_into_future: 1
+    use: False
 
 optimizer:
   global_gradient_clip_val: 0.05
   grad_clip_type: 'inf'
   encoder_optimizer:
     lr: 1e-4
-    weight_decay: 0.0
+    weight_decay: 0.05
     lr_scheduler:
       type: exp
       warmup_steps: 30_000
@@ -47,7 +46,7 @@ optimizer:
 
   slot_optimizer:
     lr: 1e-4
-    weight_decay: 0.0
+    weight_decay: 0.05
     lr_scheduler:
       type: exp
       warmup_steps: 30_000
@@ -56,7 +55,7 @@ optimizer:
   
   decoder_optimizer:
     lr: 3e-4
-    weight_decay: 0.0
+    weight_decay: 0.05
     lr_scheduler:
       type: exp
       warmup_steps: 30_000

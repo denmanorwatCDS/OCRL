@@ -4,7 +4,7 @@ import numpy as np
 import hydra
 from omegaconf import OmegaConf
 
-num_tr = 250_000
+num_tr = 1_000_000
 num_val = 10_000
 data_path = '/media/denis/data'
 
@@ -13,22 +13,18 @@ chunks = 50
 
 def collect_data(config, data_path, img_path, obs_size, reset_after_each_step, env_type):
     print('Collecting data...')
+    from envs.collect_data.collect_data_from_env import parallel_get_data
+    config.obs_size = obs_size
     if env_type == 'Shapes':
-        from envs.collect_data.collect_data_from_sh import parallel_get_data
         from envs import synthetic_envs as envs
-        config.obs_size = obs_size
         env = [getattr(envs, config.env)(config, seed=i) for i in range(num_proc)]
 
     elif env_type == 'Causal':
-        from envs.collect_data.collect_data_from_cw import parallel_get_data
         from envs import cw_envs as envs
-        config.obs_size = obs_size
         env = [getattr(envs, config.env)(config, seed=i) for i in range(num_proc)]
 
     elif env_type == 'Pong':
-        from envs.collect_data.collect_data_from_pong import parallel_get_data
         from envs import pong_envs as envs
-        config.obs_size = obs_size
         env = [getattr(envs, config.env)(config, seed=i) for i in range(num_proc)]
     
     file_name = f"{data_path}/data.hdf5"
@@ -37,28 +33,21 @@ def collect_data(config, data_path, img_path, obs_size, reset_after_each_step, e
     tr_group = f.create_group("TrainingSet")
     tr_group.create_dataset(name = 'obss', shape = (num_tr, config.obs_size, config.obs_size, 3), 
                             chunks = (num_tr // chunks, config.obs_size, config.obs_size, 3), dtype = np.uint8)
-    tr_group.create_dataset(name = 'num_objs', shape = (num_tr, ),
-                            chunks = (num_tr // chunks), dtype = np.uint8)
-    tr_group.create_dataset(name = 'labels', shape = (num_tr, ),
-                            chunks = (num_tr // chunks), dtype = np.uint8)
+    tr_group.create_dataset(name = 'dones', shape = (num_tr, ),
+                            chunks = (num_tr // chunks), dtype = np.bool_)
     for i in range(chunks):
-        obss, _, num_objs, labels = parallel_get_data(env, num_proc, num_tr // chunks, 
+        obss, _, dones = parallel_get_data(env, env_type, num_proc, num_tr // chunks, 
                                                       reset_after_each_step = reset_after_each_step, render_masks = False,
                                                       img_path = img_path if i == 0 else None)
         tr_group["obss"][i * (num_tr // chunks): (i + 1) * (num_tr // chunks)] = obss
-        tr_group["num_objs"][i * (num_tr // chunks): (i + 1) * (num_tr // chunks)] = num_objs
-        if labels:
-            tr_group["labels"][i * (num_tr // chunks): (i + 1) * (num_tr // chunks)] = labels
+        tr_group["dones"][i * (num_tr // chunks): (i + 1) * (num_tr // chunks)] = dones
     val_group = f.create_group("ValidationSet")
-    obss, masks, num_objs, labels = parallel_get_data(env, num_proc, num_val, 
+    obss, masks, dones = parallel_get_data(env, env_type, num_proc, num_val, 
                                                       reset_after_each_step = reset_after_each_step, render_masks = True,
                                                       img_path = img_path)
     assert len(obss) == num_val
     permutation = np.random.permutation(len(obss))
-    val_group["obss"], val_group["masks"], val_group["num_objs"] =\
-        np.stack(obss, axis = 0)[permutation], np.stack(masks, axis = 0)[permutation], np.stack(num_objs, axis = 0)[permutation]
-    if labels:
-        val_group["labels"] = np.stack(labels, axis = 0)[permutation]
+    val_group["obss"], val_group["masks"] = np.stack(obss, axis = 0)[permutation], np.stack(masks, axis = 0)[permutation]
     print("done", os.getcwd(), file_name)
     f.close()
 

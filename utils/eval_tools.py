@@ -119,3 +119,24 @@ def evaluate_ocr_model(model, val_dataloader):
         imgs[name] = attn_images[name]
     model.training_mode()
     return logs, imgs
+
+def calculate_explained_variance(y_true, y_pred):
+    y_true, y_pred = y_true.cpu().numpy(), y_pred.cpu().numpy()
+    var_y = np.var(y_true)
+    return np.nan if var_y == 0 else 1 - np.var(y_true - y_pred) / var_y
+
+def log_ppg_results(experiment, step, 
+                    logs_before_ppg, imgs_before_ppg, logs_after_ppg, imgs_after_ppg, curves):
+    experiment.log_metrics({f'before_ppg/{key}': logs_before_ppg[key] for key in logs_before_ppg.keys()}, step = step)
+    for key in imgs_before_ppg.keys():
+        experiment.log_image(image_data = imgs_before_ppg[key], name = f'before_ppg/{key}', 
+                             image_minmax = (0, 255), step = step)
+        
+    experiment.log_metrics({f'after_ppg/{key}': logs_after_ppg[key] for key in logs_after_ppg.keys()}, step = step)
+    for key in imgs_after_ppg.keys():
+        experiment.log_image(image_data = imgs_after_ppg[key], name = f'after_ppg/{key}', 
+                             image_minmax = (0, 255), step = step)
+        
+    for key, value in curves.items():
+        x = np.arange(len(curves[key]))
+        experiment.log_curve(x = x, y = value, name = f'ppg/{key}', step = step)

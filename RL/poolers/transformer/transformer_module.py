@@ -132,7 +132,7 @@ class SinusoidalEncoding(nn.Module):
 
 
 class Transformer_Module(nn.Module):
-    def __init__(self, ocr_rep_dim: int, ocr_num_slots: int, config: dict, num_stacked_obss: int=1) -> None:
+    def __init__(self, ocr_rep_dim: int, num_slots: int, config: dict, num_stacked_obss: int=1) -> None:
         super(Transformer_Module, self).__init__()
         self.rep_dim = d_model = config.d_model
         self.config = config
@@ -142,11 +142,11 @@ class Transformer_Module(nn.Module):
 
         # Positional encoding
         if num_stacked_obss > 1:
-            pos = StackedObsPositionalEncoding(d_model=d_model, max_len=(ocr_num_slots*num_stacked_obss) + 1, num_stacked_obss=num_stacked_obss, include_initial_cls_token=True)
+            pos = StackedObsPositionalEncoding(d_model=d_model, max_len=(num_slots*num_stacked_obss) + 1, num_stacked_obss=num_stacked_obss, include_initial_cls_token=True)
         elif config.pos_emb == "ape":  # Absolute Positional Embedding
-            pos = PositionalEncoding(d_model=d_model, max_len=ocr_num_slots + 1)
+            pos = PositionalEncoding(d_model=d_model, max_len=num_slots + 1)
         elif config.pos_emb == "lpe":  # Learnable Positional Embedding
-            pos = PositionalEncoding(d_model=d_model, max_len=ocr_num_slots + 1)
+            pos = PositionalEncoding(d_model=d_model, max_len=num_slots + 1)
         elif config.pos_emb == "None":
             pos = None
 

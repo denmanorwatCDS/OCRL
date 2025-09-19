@@ -3,8 +3,8 @@ defaults:
     - _self_
 
 name: 'TransformerPooler'
-rep_dim: 128
-d_model: 128
+rep_dim: 64
+d_model: 64
 nhead: 4
 num_layers: 1
 pos_emb: None

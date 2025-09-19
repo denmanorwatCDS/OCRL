@@ -3,7 +3,9 @@ defaults:
     - _self_
 name: CwTargetN4C4S1S1Env
 env: CwTargetEnv
+precollected_dataset: ClassicalCW
 
 mode: 'hard'
 target: ['blue']
 COLORS: ['blue', 'green', 'yellow', 'red']
+obs_size: ???

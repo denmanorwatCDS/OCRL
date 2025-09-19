@@ -2,8 +2,11 @@ defaults:
     - _synthetic_env_base
     - _self_
 env: OddOneOutEnv
+precollected_dataset: ClassicalOddOneOutSH
+
 name: OddOneOutN4C2S2S1EnvOC
 obj_comp: True
 COLORS: ['blue', 'green']
 SHAPES: ['square', 'triangle']
 SCALES: [0.15]
+obs_size: ???

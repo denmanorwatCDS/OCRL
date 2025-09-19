@@ -7,10 +7,10 @@ from copy import deepcopy
 
 
 class FT_DINOSAUR(OC_model):
-    def __init__(self, ocr_config: dict, env_config: dict) -> None:
-        super(FT_DINOSAUR, self).__init__(ocr_config, env_config)
-        self._obs_size = obs_size = env_config.obs_size
-        self._obs_channels = env_config.obs_channels
+    def __init__(self, ocr_config, obs_size, obs_channels) -> None:
+        super(FT_DINOSAUR, self).__init__(ocr_config, obs_size = obs_size, obs_channels = obs_channels)
+        self._obs_size = obs_size = obs_size
+        self._obs_channels = obs_channels
         self.unfrozen_blocks, self.layerwise_decay = ocr_config.encattr.backbone.unfrozen_blocks, ocr_config.encattr.backbone.layerwise_decay
 
         ## Configs
@@ -25,7 +25,7 @@ class FT_DINOSAUR(OC_model):
         self._enc = FrameEncoder(
             backbone_kwargs = ocr_config.encattr.backbone,
             output_transform_kwargs = ocr_config.encattr.output_transform,
-            obs_size = (env_config.obs_size, env_config.obs_size)
+            obs_size = (obs_size, obs_size)
         )
         self._slot_attention = SlotAttentionModule(
             num_iterations = ocr_config.slotattr.num_iterations,
@@ -39,10 +39,10 @@ class FT_DINOSAUR(OC_model):
         self._target_enc = FrameEncoder(
             backbone_kwargs = ocr_config.targetencattr.backbone,
             output_transform_kwargs = None,
-            obs_size = (env_config.obs_size, env_config.obs_size)
+            obs_size = (obs_size, obs_size)
         )
         with torch.no_grad():
-            test_tensor = torch.zeros((1, env_config.obs_channels, env_config.obs_size, env_config.obs_size))
+            test_tensor = torch.zeros((1, obs_channels, obs_size, obs_size))
             inp_shape = self._target_enc(test_tensor, patch_dropout = False)['features'].shape[1]
 
         self._dec = MLPDecoder(
@@ -53,7 +53,7 @@ class FT_DINOSAUR(OC_model):
             dropout_prob = ocr_config.decoder.dropout_prob,
             spectral_normalisation = ocr_config.decoder.spectral_normalisation
         )
-        self._resizer = Resizer(size = (env_config.obs_size, env_config.obs_size), patch_inputs=True)
+        self._resizer = Resizer(size = (obs_size, obs_size), patch_inputs=True)
 
         self._paramwise_lr = {}
         for name, _ in self.get_grouped_parameters().items():
@@ -138,6 +138,9 @@ class FT_DINOSAUR(OC_model):
 
         slots, attns = self._slot_attention(features)
         return slots, attns
+    
+    def get_slots(self, obs, training):
+        return self._get_slots(obs, do_dropout = False, training = training)[0]
     
     def get_loss(self, obs, do_dropout):
         mse = torch.nn.MSELoss(reduction = "mean")

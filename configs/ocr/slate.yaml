@@ -3,9 +3,8 @@ tau_start: 1.0
 tau_final: 0.1
 tau_steps: 30000
 hard: False
-batch_size: 64
+batch_size: 24
 dropout: 0.1
-obs_size: 64
 use_augs: false
 augment_samples: false
 dataset_folder: null
@@ -21,9 +20,6 @@ feature_dropout:
   min_features_dropped: 0.
   max_features_dropped: 0.5
   feature_dropout_proba: 0.
-  
-loss:
-  reg_coef: 0.
 
 dvae:
   vocab_size: 4096
@@ -34,12 +30,15 @@ cnn:
 
 slotattr:
   num_iterations: 3
-  num_slots: 5
+  num_slots: ???
   num_slot_heads: 1
-  slot_size: 192
+  slot_size: 64
   mlp_hidden_size: 192
   pos_channels: 4
   preinit_type: classic
+  matching_loss:
+    steps_into_future: 1
+    use: False
 
 tfdec:
   num_dec_blocks: 4
@@ -50,7 +49,7 @@ optimizer:
   grad_clip_type: 'inf'
   encoder_optimizer:
     lr: 1e-4
-    weight_decay: 0.0
+    weight_decay: 0.05
     lr_scheduler:
       warmup_steps: 30_000
       decay_steps: 250_000
@@ -59,7 +58,7 @@ optimizer:
 
   slot_optimizer:
     lr: 1e-4
-    weight_decay: 0.0
+    weight_decay: 0.05
     lr_scheduler:
       warmup_steps: 30_000
       decay_steps: 250_000
@@ -68,7 +67,7 @@ optimizer:
   
   decoder_optimizer:
     lr: 3e-4
-    weight_decay: 0.0
+    weight_decay: 0.05
     lr_scheduler:
       warmup_steps: 30_000
       decay_steps: 250_000
@@ -77,7 +76,7 @@ optimizer:
 
   dvae_optimizer:
     lr: 3e-4
-    weight_decay: 0.0
+    weight_decay: 0.05
     lr_scheduler:
       warmup_steps: 0
       decay_steps: 250_000

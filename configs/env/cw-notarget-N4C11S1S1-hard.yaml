@@ -7,7 +7,6 @@ env: CwTargetEnv
 mode: 'hard'
 target: []
 check_collisions: False
-#COLORS: ['blue', 'green', 'yellow', 'red']
 COLORS: ['blue', 'green', 'yellow', 'red', 'orange', 'purple', 'brown', 'pink', 'gray', 'olive', 'cyan']
-
+obs_size: ???
 

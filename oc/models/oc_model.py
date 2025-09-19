@@ -3,11 +3,11 @@ from torch import nn
 from copy import deepcopy
 
 class OC_model(nn.Module):
-    def __init__(self, ocr_config: dict, env_config: dict):
+    def __init__(self, ocr_config, obs_size, obs_channels):
         # Copy fields that needed in all models
         super(OC_model, self).__init__()
-        self._obs_size = env_config.obs_size
-        self._obs_channels = env_config.obs_channels
+        self._obs_size = obs_size
+        self._obs_channels = obs_channels
         self.num_slots = ocr_config.slotattr.num_slots
         self.rep_dim = ocr_config.slotattr.slot_size
         self.min_obs_bound, self.max_obs_bound = ocr_config.image_limits
@@ -59,6 +59,9 @@ class OC_model(nn.Module):
     
     def convert_attns_to_img(self, attns):
         normalized_img = torch.clamp(((attns - self.min_obs_bound) / (self.max_obs_bound - self.min_obs_bound) * 255), 0, 255).to(torch.uint8)
+
+    def requires_ppg(self):
+        return True
 
     def update_hidden_states(self):
         raise NotImplementedError

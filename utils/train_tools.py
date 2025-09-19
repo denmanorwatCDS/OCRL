@@ -1,3 +1,4 @@
+import os
 import envs
 import gym
 import random
@@ -70,7 +71,8 @@ def make_env(env_config, gamma, ocr_min_val, ocr_max_val, seed = 0, rank = 0):
         env = getattr(envs, env_config.env)(env_config, seed + rank)
         env = NormalizationWrapper(env, min_val = ocr_min_val, max_val = ocr_max_val)
         env = gym.wrappers.RecordEpisodeStatistics(env)
-        env = gym.wrappers.ClipAction(env)
+        if not isinstance(env.action_space, gym.spaces.Discrete):
+            env = gym.wrappers.ClipAction(env)
         env = gym.wrappers.NormalizeReward(env, gamma = gamma)
         env = gym.wrappers.TransformReward(env, lambda reward: np.clip(reward, -10, 10))
     
@@ -78,3 +80,25 @@ def make_env(env_config, gamma, ocr_min_val, ocr_max_val, seed = 0, rank = 0):
     np.random.seed(seed + rank)
     torch.manual_seed(seed + rank)
     return env
+
+def update_episodic_metrics_(metrics, dones, infos):
+    if torch.any(dones):
+        for i, info in enumerate(infos):
+            if dones[i] and "episode" in info:
+                metrics.update({'episode/return': info["episode"]["r"], 'episode/length': info["episode"]["l"]})
+
+def get_model_name(dataset_name, image_size, model_name, save_name):
+    dir_name = '/'.join(['models', image_size, dataset_name])
+    model_name = '/'.join([dir_name, '_'.join([model_name, save_name])])
+    return dir_name, model_name
+
+def update_curves_(curve_dict, metrics):
+    if not curve_dict:
+        for metric_name, metric_value in metrics.items():
+            curve_dict[metric_name] = [metric_value]
+    else:
+        for metric_name, metric_value in metrics.items():
+            curve_dict[metric_name].append(metric_value)
+
+def get_uint_to_float(min_val, max_val):
+    return lambda x: (x.to(torch.float32) / 255 * (max_val - min_val) + min_val)

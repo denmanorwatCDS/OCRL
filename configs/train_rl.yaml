@@ -7,13 +7,17 @@ defaults:
   - env: ???
   - comet: train_rl
 
-max_steps: 2e6
+max_steps: 500_000
 
-model_name: null
-session_name: null
+dataset_root_path: ???
 num_envs: 4
 
-viz_interval: 30000
+pretrained_model:
+  use: False
+  save_name: null
+  step: null
+  env: null
+
 eval:
     freq: 12500
     n_episodes: 100

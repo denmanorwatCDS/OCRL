@@ -1,5 +1,11 @@
 name: Identity
 image_limits: [0, 1]
+batch_size: 64
+
+slotattr:
+  matching_loss:
+    steps_into_future: 5
+    use: False
 
 optimizer:
   identity_optimizer:

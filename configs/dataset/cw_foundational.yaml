@@ -1,0 +1,4 @@
+root_path: ???
+obs_size: ???
+obs_channels: 3
+name: HighDiversityOcclusionCW

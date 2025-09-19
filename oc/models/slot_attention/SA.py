@@ -5,23 +5,23 @@ from oc.models.utils.networks import CNNEncoder, PositionalEmbedding
 from oc.models.utils.slot_attention import SlotAttentionModule
 from oc.models.utils.dropouts import CnnPatchDropout, FeatureDropout
 from oc.models.slot_attention.submodels import BroadCastDecoder
-from itertools import chain
 from oc.models.oc_model import OC_model
+from oc.models.utils.losses import hungarian_loss
+from itertools import chain
 
 # TODO make dict parameters as mixin into classes, not as method implemented in 100500 models
 class Slot_Attention(OC_model):
-    def __init__(self, ocr_config: dict, env_config: dict) -> None:
-        super(Slot_Attention, self).__init__(ocr_config, env_config)
-        self._obs_size = obs_size = env_config.obs_size
-        self._obs_channels = obs_channels = env_config.obs_channels
+    def __init__(self, ocr_config: dict, obs_size, obs_channels) -> None:
+        super(Slot_Attention, self).__init__(ocr_config, obs_size = obs_size, 
+                                             obs_channels = obs_channels)
+        self._obs_size = obs_size
+        self._obs_channels = obs_channels
         self.num_slots = ocr_config.slotattr.num_slots
         self.rep_dim = ocr_config.slotattr.slot_size
 
-        self.reg_coef = ocr_config.loss.reg_coef
-
         # build encoder
         # TODO change obs_size so it is a tuple, not a single integer
-        self._enc = CNNEncoder(env_config.obs_channels, ocr_config.cnn_hsize)
+        self._enc = CNNEncoder(obs_channels, ocr_config.cnn_hsize)
         self._enc_pos = PositionalEmbedding(int(obs_size), ocr_config.cnn_hsize)
         self._patch_dropout = CnnPatchDropout(patch_dropout_proba = ocr_config.cnn_patch_dropout.patch_dropout_proba,
                                               min_patches_dropped = ocr_config.cnn_patch_dropout.min_patches_dropped,
@@ -41,9 +41,10 @@ class Slot_Attention(OC_model):
             num_heads = ocr_config.slotattr.num_slot_heads,
             preinit_type = ocr_config.slotattr.preinit_type,
         )
-        self._dec = BroadCastDecoder(obs_size = obs_size, obs_channels = env_config.obs_channels, 
+        self._dec = BroadCastDecoder(obs_size = obs_size, obs_channels = obs_channels, 
                                      hidden_size = ocr_config.cnn_hsize, slot_size = ocr_config.slotattr.slot_size,
                                      initial_size = ocr_config.initial_size)
+        self.use_hungarian_loss = ocr_config.slotattr.matching_loss.use
 
     def _get_slot_params(self):
         return self._slot_attention.named_parameters()
@@ -78,14 +79,22 @@ class Slot_Attention(OC_model):
         slots, enc_attns = self._slot_attention(features)
         return slots, enc_attns
     
-    def get_loss(self, obs, do_dropout):
+    def get_slots(self, obs, training):
+        return self._get_slots(obs, do_dropout = False, training = training)[0]
+    
+    def get_loss(self, obs, future_obs, do_dropout):
         slots, _ = self._get_slots(obs, do_dropout = do_dropout, training = True)
         recon, _ = self._dec(slots)
         mse = torch.nn.MSELoss(reduction = "mean")
+        hung_loss = 0
         SA_loss = mse(obs, recon)
         mets = {'total_loss': SA_loss.detach().cpu(),
                 'SA_loss': SA_loss.detach().cpu()}
-        return SA_loss, mets
+        if self.use_hungarian_loss:
+            hung_loss = hungarian_loss(slots, self._get_slots(future_obs, do_dropout = do_dropout, training = True)[0])
+            mets.update({'hungarian_loss': hung_loss.detach().cpu()})
+        total_loss = SA_loss + hung_loss
+        return total_loss, mets
     
     def calculate_validation_data(self, obs):
         with torch.no_grad():
@@ -129,4 +138,7 @@ class Slot_Attention(OC_model):
         return metrics
     
     def update_hidden_states(self, step: int) -> None:
+        pass
+
+    def save_oc_extractor(self):
         pass

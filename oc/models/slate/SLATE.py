@@ -3,6 +3,7 @@ from torch import nn
 from oc.models.oc_model import OC_model
 from torch.nn import functional as F
 from itertools import chain
+from oc.models.utils.losses import hungarian_loss
 from oc.models.utils.networks import CNNEncoder, PositionalEmbedding, linear
 from oc.models.utils.dropouts import CnnPatchDropout, FeatureDropout
 from oc.models.utils.slot_attention import SlotAttentionModule
@@ -10,11 +11,11 @@ from oc.models.slate.submodels import dVAE, LearnedPositionalEncoding, Transform
 
 # TODO make dict parameters as mixin into classes, not as method implemented in 100500 models
 class SLATE(OC_model):
-    def __init__(self, ocr_config: dict, env_config: dict) -> None:
+    def __init__(self, ocr_config, obs_size, obs_channels) -> None:
         super(SLATE, self).__init__(ocr_config = ocr_config,
-                                    env_config = env_config)
-        self._obs_size = obs_size = env_config.obs_size
-        self._obs_channels = obs_channels = env_config.obs_channels
+                                    obs_size = obs_size, obs_channels = obs_channels)
+        self._obs_size = obs_size = obs_size
+        self._obs_channels = obs_channels = obs_channels
 
         ## Configs
         # dvae config
@@ -79,6 +80,7 @@ class SLATE(OC_model):
         )
         # intermediate layer between TF decoder and dVAE decoder
         self._out = linear(d_model, vocab_size, bias=False)
+        self.use_hungarian_loss = ocr_config.slotattr.matching_loss.use
 
     def get_enc_params(self):
         return chain(self._enc.named_parameters(),
@@ -132,6 +134,9 @@ class SLATE(OC_model):
         
         return slots, enc_attns
     
+    def get_slots(self, obs, training):
+        return self._get_slots(obs, do_dropout = False, training = training)[0]
+    
     def _calculate_CE(self, obs, slots, z_hard):
         z_hard = z_hard.permute(0, 2, 3, 1).flatten(start_dim=1, end_dim=2)
         z_emb = self._dict(z_hard)
@@ -146,7 +151,7 @@ class SLATE(OC_model):
             -(z_hard * torch.log_softmax(pred, dim=-1)).flatten(start_dim=1).mean())
         return cross_entropy
     
-    def get_loss(self, obs, do_dropout):
+    def get_loss(self, obs, future_obs, do_dropout):
         # DVAE component of the loss
         z, z_hard = self._get_z(obs)
         dvae_recon = self._dvae.decode(z)
@@ -161,6 +166,11 @@ class SLATE(OC_model):
         mets = {'total_loss': total_loss.detach().cpu(),
                 'dvae_mse': dvae_mse.detach().cpu(),
                 'cross_entropy': cross_entropy.detach().cpu()}
+        hung_loss = 0
+        if self.use_hungarian_loss:
+            hung_loss = hungarian_loss(slots, self._get_slots(future_obs, do_dropout = do_dropout, training = True)[0])
+            mets.update({'hungarian_loss': hung_loss.detach().cpu()})
+        total_loss += hung_loss
         return total_loss, mets
     
     def calculate_validation_data(self, obs):

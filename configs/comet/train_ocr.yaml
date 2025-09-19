@@ -3,4 +3,4 @@ defaults:
     - _self_
     - _api
 
-project: ocrl
+project: debug-oc-pretrain
