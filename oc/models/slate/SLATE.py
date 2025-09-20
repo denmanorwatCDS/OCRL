@@ -81,6 +81,7 @@ class SLATE(OC_model):
         # intermediate layer between TF decoder and dVAE decoder
         self._out = linear(d_model, vocab_size, bias=False)
         self.use_hungarian_loss = ocr_config.slotattr.matching_loss.use
+        self.hungarian_coef = ocr_config.slotattr.matching_loss.coef
 
     def get_enc_params(self):
         return chain(self._enc.named_parameters(),
@@ -168,7 +169,7 @@ class SLATE(OC_model):
                 'cross_entropy': cross_entropy.detach().cpu()}
         hung_loss = 0
         if self.use_hungarian_loss:
-            hung_loss = hungarian_loss(slots, self._get_slots(future_obs, do_dropout = do_dropout, training = True)[0])
+            hung_loss = hungarian_loss(slots, self._get_slots(future_obs, do_dropout = do_dropout, training = True)[0]) * self.hungarian_coef
             mets.update({'hungarian_loss': hung_loss.detach().cpu()})
         total_loss += hung_loss
         return total_loss, mets

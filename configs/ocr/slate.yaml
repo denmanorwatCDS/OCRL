@@ -39,6 +39,7 @@ slotattr:
   matching_loss:
     steps_into_future: 1
     use: False
+    coef: 0.02
 
 tfdec:
   num_dec_blocks: 4

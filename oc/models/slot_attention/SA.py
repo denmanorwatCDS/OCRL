@@ -45,6 +45,7 @@ class Slot_Attention(OC_model):
                                      hidden_size = ocr_config.cnn_hsize, slot_size = ocr_config.slotattr.slot_size,
                                      initial_size = ocr_config.initial_size)
         self.use_hungarian_loss = ocr_config.slotattr.matching_loss.use
+        self.hungarian_coef = ocr_config.slotattr.matching_loss.coef
 
     def _get_slot_params(self):
         return self._slot_attention.named_parameters()
@@ -91,7 +92,7 @@ class Slot_Attention(OC_model):
         mets = {'total_loss': SA_loss.detach().cpu(),
                 'SA_loss': SA_loss.detach().cpu()}
         if self.use_hungarian_loss:
-            hung_loss = hungarian_loss(slots, self._get_slots(future_obs, do_dropout = do_dropout, training = True)[0])
+            hung_loss = hungarian_loss(slots, self._get_slots(future_obs, do_dropout = do_dropout, training = True)[0]) * self.hungarian_coef
             mets.update({'hungarian_loss': hung_loss.detach().cpu()})
         total_loss = SA_loss + hung_loss
         return total_loss, mets
