@@ -2,4 +2,4 @@
 .vscode
 fetch-block-construction
 outputs
-models
+/models/*
