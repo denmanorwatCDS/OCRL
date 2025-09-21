@@ -81,7 +81,7 @@ def main(config):
             
             if i % 100 == 0:
                 experiment.log_metrics(mets, step = i)
-
+            
             if (i % 1_000 == 0):
                 logs, imgs = evaluate_ocr_model(model = model, val_dataloader = val_dataloader)
                 experiment.log_metrics({f'val/{key}': logs[key] for key in logs.keys()}, step = i)

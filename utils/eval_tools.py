@@ -24,9 +24,6 @@ def get_item(x):
         return x.detach().cpu().numpy()
 
 def calculate_ari(true_masks, pred_masks, foreground=False):
-    #save_attns_images(true_masks, 'True')
-    #save_attns_images(pred_masks, 'Pred')
-    #save_images(true_masks, pred_masks)
     true_masks = true_masks.flatten(2)
     pred_masks = pred_masks.flatten(2)
 
@@ -94,11 +91,11 @@ def evaluate_ocr_model(model, val_dataloader):
                 if key not in precalc_data.keys():
                     precalc_data[key] = []
                 precalc_data[key].append(mets[key])
-                
+    
     logs = {key: np.mean(val) for key, val in precalc_data.items()}
     for mask in ari_dict.keys():
         for metric in ari_dict[mask].keys():
-            logs[f'{mask}: {metric}'] = np.mean(ari_dict[mask][metric])
+            logs[f'{mask}:{metric}'] = np.mean(ari_dict[mask][metric])
     
     if recon_images:
         imgs = {'observations': np.concatenate(recon_images, axis = 0)}
