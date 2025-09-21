@@ -71,7 +71,7 @@ def main(config):
     optimizer = OCOptimizer(omegaconf.OmegaConf.to_container(config.ocr.optimizer), oc_model = model, policy = None)
     i = 0
     model.training_mode()
-    while i < config.max_steps + 1:
+    while i < config.max_steps:
         for batch, future_batch in train_dataloader:
             batch, future_batch = batch.cuda(), future_batch.cuda()
             optimizer.optimizer_zero_grad()
@@ -96,5 +96,6 @@ def main(config):
             if i > config.max_steps:
                 break
     torch.save(model.state_dict(), model_save_path + f';step:{i - 1}')
+
 if __name__ == "__main__":
     main()
