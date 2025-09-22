@@ -36,6 +36,7 @@ slotattr:
   mlp_hidden_size: 192
   pos_channels: 4
   preinit_type: classic
+  normalize_keys: false
   matching_loss:
     steps_into_future: 1
     use: False

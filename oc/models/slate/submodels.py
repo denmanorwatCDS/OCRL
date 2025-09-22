@@ -137,8 +137,6 @@ class TransformerDecoderBlock(nn.Module):
         x = self.ffn(x)
         return input + x
         
-
-
 class TransformerDecoder(nn.Module):
     def __init__(self, num_blocks, max_len, d_model, num_heads, dropout=0.0):
         super().__init__()

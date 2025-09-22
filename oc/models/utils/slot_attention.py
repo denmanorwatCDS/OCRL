@@ -32,6 +32,7 @@ class SlotAttention(nn.Module):
         mlp_hidden_size,
         heads,
         preinit_type,
+        normalize_keys,
         epsilon=1e-8,
     ):
         super().__init__()
@@ -53,6 +54,9 @@ class SlotAttention(nn.Module):
         # Linear maps for the attention module.
         self.project_q = linear(slot_size, slot_size, bias=False)
         self.project_k = linear(input_size, slot_size, bias=False)
+        self.key_normalizer = lambda x: x
+        if normalize_keys:
+            self.key_normalizer = lambda x: x / torch.norm(x, p = 2, dim = -1, keepdim = True)
         self.project_v = linear(input_size, slot_size, bias=False)
 
         # Slot update functions.
@@ -88,7 +92,7 @@ class SlotAttention(nn.Module):
 
         inputs = self.norm_inputs(inputs)
         k = (
-            self.project_k(inputs).view(B, N_kv, self.num_heads, -1).transpose(1, 2)
+            self.key_normalizer(self.project_k(inputs)).view(B, N_kv, self.num_heads, -1).transpose(1, 2)
         )  # Shape: [batch_size, num_heads, num_inputs, slot_size // num_heads].
         v = (
             self.project_v(inputs).view(B, N_kv, self.num_heads, -1).transpose(1, 2)
@@ -159,7 +163,7 @@ class SlotAttention(nn.Module):
     
     def update_statistics(self, batch):
         with torch.no_grad():
-            batch_keys = self.project_k(batch).detach().clone()
+            batch_keys = self.key_normalizer(self.project_k(batch)).detach().clone()
             self.feature_dist.add_batch(batch_keys)
 
     def log_slot_mean_std(self):
@@ -194,6 +198,7 @@ class SlotAttentionModule(nn.Module):
         mlp_hidden_size,
         num_heads,
         preinit_type,
+        normalize_keys
     ):
         super().__init__()
 
@@ -217,7 +222,8 @@ class SlotAttentionModule(nn.Module):
             slot_size,
             mlp_hidden_size,
             num_heads,
-            preinit_type
+            preinit_type,
+            normalize_keys = normalize_keys
         )
 
     def forward(self, input):

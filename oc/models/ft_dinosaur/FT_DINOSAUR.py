@@ -35,6 +35,7 @@ class FT_DINOSAUR(OC_model):
             mlp_hidden_size = ocr_config.slotattr.mlp_hidden_size,
             num_heads = ocr_config.slotattr.num_slot_heads,
             preinit_type = ocr_config.slotattr.preinit_type,
+            normalize_keys = ocr_config.slotattr.normalize_keys
         )
         self._target_enc = FrameEncoder(
             backbone_kwargs = ocr_config.targetencattr.backbone,

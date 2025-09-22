@@ -37,6 +37,8 @@ def main(config):
     rollout_dataset = h5py.File(dataset_path, "r")['TrainingSet']
     # TODO pass rollout preprocessor as input in wrappers to unify preprocessing pipeline for images
     # gathered both from environment and via random policy as they are from same distribution
+    # TODO add freezed version of RL algorithm;
+    # TODO detach target tensors in PPG phase
     rollout_preprocessor = lambda x: uint_to_float(torch.from_numpy(x)).permute(2, 0, 1)
     
     val_dataset = H5Dataset(datafile = dataset_path, uint_to_float = uint_to_float,
