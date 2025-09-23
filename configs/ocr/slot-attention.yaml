@@ -29,6 +29,7 @@ slotattr:
   pos_channels: 4
   preinit_type: classic
   normalize_keys: false
+  squash_features: false
   matching_loss:
     steps_into_future: 1
     use: False

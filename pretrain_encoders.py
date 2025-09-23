@@ -2,7 +2,6 @@ import hydra
 import torch
 import omegaconf
 import os, sys
-import numpy as np
 
 from comet_ml import Experiment
 from torch.utils.data import DataLoader

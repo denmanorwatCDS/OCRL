@@ -202,7 +202,8 @@ class SlotAttentionModule(nn.Module):
         mlp_hidden_size,
         num_heads,
         preinit_type,
-        normalize_keys
+        normalize_keys,
+        squash_features
     ):
         super().__init__()
 
@@ -211,6 +212,7 @@ class SlotAttentionModule(nn.Module):
         self.input_channels = input_channels
         self.slot_size = slot_size
         self.mlp_hidden_size = mlp_hidden_size
+        self.squash_features = squash_features
 
         self.layer_norm = nn.LayerNorm(input_channels)
         self.mlp = nn.Sequential(
@@ -234,6 +236,8 @@ class SlotAttentionModule(nn.Module):
         # `image` has shape: [batch_size, img_channels, img_height, img_width].
         # `encoder_grid` has shape: [batch_size, pos_channels, enc_height, enc_width].
         x = self.mlp(self.layer_norm(input))
+        if self.squash_features:
+            x = torch.tanh(x)
         # `x` has shape: [batch_size, enc_height * enc_width, cnn_hidden_size].
         # Slot Attention module.
         slots = self.slot_attention.prepare_slots(input)

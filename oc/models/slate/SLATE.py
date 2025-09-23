@@ -67,7 +67,8 @@ class SLATE(OC_model):
             mlp_hidden_size,
             num_slot_heads,
             preinit_type = preinit_type,
-            normalize_keys = ocr_config.slotattr.normalize_keys
+            normalize_keys = ocr_config.slotattr.normalize_keys,
+            squash_features = ocr_config.slotattr.squash_features
         )
 
         self._slotproj = linear(slot_size, d_model, bias=False)

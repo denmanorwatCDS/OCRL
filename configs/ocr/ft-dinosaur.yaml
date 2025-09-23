@@ -19,6 +19,7 @@ slotattr:
   max_features_dropped: 0.5
   feature_dropout_proba: 0.
   normalize_keys: false
+  squash_features: false
   matching_loss:
     steps_into_future: 1
     use: False

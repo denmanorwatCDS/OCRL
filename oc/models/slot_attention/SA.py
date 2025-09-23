@@ -40,7 +40,8 @@ class Slot_Attention(OC_model):
             mlp_hidden_size = ocr_config.slotattr.mlp_hidden_size,
             num_heads = ocr_config.slotattr.num_slot_heads,
             preinit_type = ocr_config.slotattr.preinit_type,
-            normalize_keys = ocr_config.slotattr.normalize_keys
+            normalize_keys = ocr_config.slotattr.normalize_keys,
+            squash_features = ocr_config.slotattr.squash_features
         )
         self._dec = BroadCastDecoder(obs_size = obs_size, obs_channels = obs_channels, 
                                      hidden_size = ocr_config.cnn_hsize, slot_size = ocr_config.slotattr.slot_size,
