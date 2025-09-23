@@ -56,7 +56,11 @@ class SlotAttention(nn.Module):
         self.project_k = linear(input_size, slot_size, bias=False)
         self.key_normalizer = lambda x: x
         if normalize_keys:
-            self.key_normalizer = lambda x: x / torch.norm(x, p = 2, dim = -1, keepdim = True)
+            def key_normalizer(x):
+                clipping_needed = torch.linalg.vector_norm(x, p = 2, dim = -1, keepdim = True) > 1.
+                return torch.where(clipping_needed, x / torch.linalg.vector_norm(x, p = 2, dim = -1, keepdim = True),
+                                   x)
+            self.key_normalizer = key_normalizer
         self.project_v = linear(input_size, slot_size, bias=False)
 
         # Slot update functions.
