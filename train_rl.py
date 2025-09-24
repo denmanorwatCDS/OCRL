@@ -123,6 +123,8 @@ def main(config):
         clipfracs = []
         for batch, start_obs, future_obs in rollout_buffer.convert_transitions_to_rollout():
             slots = oc_model.get_slots(batch['obs'], training = False)
+            if not config.sb3.train_feature_extractor:
+                slots = slots.detach()
             _, newlogprob, entropy = agent.get_action_logprob_entropy(slots, batch['action'])
             newvalue = agent.get_value(slots)
             
@@ -141,6 +143,8 @@ def main(config):
             v_loss = 0.5 * ((newvalue - batch['return']) ** 2).mean()
             entropy_loss = entropy.mean()
             oc_loss, mets = oc_model.get_loss(obs = start_obs, future_obs = future_obs, do_dropout = True)
+            if config.sb3.train_feature_extractor:
+                oc_loss = 0
             loss = pg_loss - config.sb3.ent_coef * entropy_loss + config.sb3.vf_coef * v_loss + oc_loss
             optimizer.optimizer_zero_grad()
             loss.backward()
@@ -154,6 +158,8 @@ def main(config):
             ppg_curves = {}
             logs_before_ppg, imgs_before_ppg = evaluate_ocr_model(oc_model, val_dataloader)
             for start_obs, future_obs in rollout_buffer.get_obs_generator(mode = 'ppg'):
+                if not config.sb3.train_feature_extractor:
+                    break
                 with torch.no_grad():
                     target_slots = target_oc_model.get_slots(start_obs, training = True)
                     target_distribution = target_agent.get_action_distribution(target_slots)
@@ -170,7 +176,8 @@ def main(config):
                 optimizer.optimizer_zero_grad()
                 total_loss.backward()
                 metrics.update(optimizer.optimizer_step('oc'))
-            optimizer.reset_optimizers()
+            if config.sb3.train_feature_extractor:
+                optimizer.reset_optimizers()
             logs_after_ppg, imgs_after_ppg = evaluate_ocr_model(oc_model, val_dataloader)
             log_ppg_results(experiment = experiment, step = global_step, 
                             logs_before_ppg = logs_before_ppg, imgs_before_ppg = imgs_before_ppg,

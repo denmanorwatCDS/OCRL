@@ -1,6 +1,5 @@
 name: 'PPO'
 train_feature_extractor: true
-freeze_feature_extractor: false
 n_steps: 2048
 batch_size: 32
 ent_coef: 0.0
@@ -14,11 +13,7 @@ ppg_freq: 8
 ppg_epochs: 8
 rollout_epochs: 10
 train_every_rollout: 1
-ppg_early_stopping: 0.995
 pretrain_steps: 30_000
-pass_only_critic_grad: false
-normalize_policy_gradient: false
-agent_only_slot_update: false
 
 optimizer:
     policy_optimizer:
