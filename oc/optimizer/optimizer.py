@@ -53,10 +53,7 @@ class OCOptimizer():
         scheduler_kwargs = {key: modules_optim_kwargs[key].pop('lr_scheduler', None) for key in\
                             modules_optim_kwargs.keys()}
         
-        schedule_fns, ocr_optimizer_kwargs = {}, []
-        if self.policy is not None:
-            schedule_fns['policy'] = constant_lr
-
+        schedule_fns, optimizer_kwargs = {}, []
         for optim_key in modules_optim_kwargs.keys():
             module_name, _ = optim_key.split('_')
             schedule_fns[module_name] = constant_lr
@@ -66,18 +63,15 @@ class OCOptimizer():
                 for name, entry in modules_paramwise_lrs[module_name].items():
                     param, lr_mult = entry['params'], entry['lr_mult']
                     modules_optim_kwargs_without_lr = {key: val for key, val in modules_optim_kwargs[optim_key].items() if key != 'lr'}
-                    ocr_optimizer_kwargs.append({'name': '.'.join([module_name, name]), 'params': param, 
+                    optimizer_kwargs.append({'name': '.'.join([module_name, name]), 'params': param, 
                                                  'lr': lr * lr_mult,
                                                  **(modules_optim_kwargs_without_lr)})
             else:
-                ocr_optimizer_kwargs.append({'name': module_name, 'params': [param for _, param in named_params_by_module[module_name]],
+                optimizer_kwargs.append({'name': module_name, 'params': [param for _, param in named_params_by_module[module_name]],
                                              **(modules_optim_kwargs[optim_key])})
         
         # Similar to stable-baselines; although, no scheduling.
-        self.all_optimizer_kwargs = ocr_optimizer_kwargs
-        if self.policy is not None:
-            self.all_optimizer_kwargs.append({'name': 'policy', 'params': [outp[1] for outp in named_params_by_module['policy']],
-                                              **modules_optim_kwargs['policy_optimizer']})
+        self.all_optimizer_kwargs = optimizer_kwargs
         
         self.rl_optimizer = torch.optim.AdamW(self.all_optimizer_kwargs)
         self.oc_optimizer = torch.optim.AdamW(self.all_optimizer_kwargs)

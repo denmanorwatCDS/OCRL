@@ -73,7 +73,6 @@ def make_env(env_config, gamma, ocr_min_val, ocr_max_val, seed = 0, rank = 0):
         env = gym.wrappers.RecordEpisodeStatistics(env)
         if not isinstance(env.action_space, gym.spaces.Discrete):
             env = gym.wrappers.ClipAction(env)
-        env = gym.wrappers.NormalizeReward(env, gamma = gamma)
         env = gym.wrappers.TransformReward(env, lambda reward: np.clip(reward, -10, 10))
     
     random.seed(seed + rank)
