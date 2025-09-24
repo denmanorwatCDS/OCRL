@@ -7,6 +7,41 @@ for_viz = lambda x: np.array(
     x.clamp(0, 1).permute(1, 2, 0).detach().cpu().numpy() * 255.0, dtype=np.uint8
 )
 
+class Metrics():
+    def __init__(self,):
+        self.metric_array = {}
+    
+    def multiple_update(self, list_of_dicts):
+        assert isinstance(list_of_dicts, list), 'Expected list of dicts'
+        for dictionary in list_of_dicts:
+            self.update(dictionary = dictionary)
+
+    def update(self, dictionary):
+        for key, value in dictionary.items():
+            if key not in self.metric_array.keys():
+                self.metric_array[key] = []
+            logging_value = value
+            if isinstance(logging_value, torch.Tensor):
+                logging_value = logging_value.detach().cpu().numpy()
+            self.metric_array[key].append(logging_value)
+    
+    def convert_to_dict(self):
+        output_dict = {}
+        for key in self.metric_array:
+            group, name = key.split('/')
+            output_dict['/'.join([group, 'mean_' + name])] = np.mean(self.metric_array[key])
+            output_dict['/'.join([group, 'max_' + name])] = np.max(self.metric_array[key])
+            output_dict['/'.join([group, 'last_' + name])] = self.metric_array[key][-1]
+        self.metric_array = {}
+        return output_dict
+    
+def add_prefix(dictionary, prefix):
+    new_dictionary = {}
+    for key in dictionary.keys():
+        new_dictionary['/'.join([prefix, key])] = dictionary[key]
+    del dictionary
+    return new_dictionary
+
 # Taken from https://github.com/singhgautam/slate/blob/master/slate.py
 def visualize(images):
     _, H, W = images[0].shape  # first image is observation
@@ -137,3 +172,12 @@ def log_ppg_results(experiment, step,
     for key, value in curves.items():
         x = np.arange(len(curves[key]))
         experiment.log_curve(x = x, y = value, name = f'ppg/{key}', step = step)
+
+def get_episodic_metrics(dones, infos):
+    output = []
+    if torch.any(dones):
+        for i, info in enumerate(infos):
+            if dones[i] and "episode" in info:
+                output.append({'episode/return': info["episode"]["r"], 'episode/length': info["episode"]["l"],
+                               'episode/mean_reward': info['episode']['r'] / info['episode']['l']})
+    return output

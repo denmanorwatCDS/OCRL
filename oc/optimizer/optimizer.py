@@ -12,10 +12,7 @@ from copy import deepcopy
 def calculate_weight_norm(params):
     norm = []
     for param in params:
-        if param.grad is not None:
             norm.append(param.detach().flatten().clone())
-        else:
-            norm.append(torch.zeros_like(param.detach().flatten()))
     if norm:
         return torch.sum(torch.cat(norm)**2)**(1/2)
     return 0
@@ -47,9 +44,11 @@ class OCOptimizer():
         modules_paramwise_lrs = self.oc_model.get_paramwise_lr()
         if self.policy is not None:
             modules_paramwise_lrs = {**modules_paramwise_lrs, **self.policy.get_paramwise_lr()}
-        self.global_grad_clip = modules_optim_kwargs.pop('global_gradient_clip_val', None)
-        self.grad_clip_type = modules_optim_kwargs.pop('grad_clip_type', 2.0)
+        self.oc_global_grad_clip = modules_optim_kwargs.pop('global_oc_gradient_clip_val', None)
+        self.oc_grad_clip_type = modules_optim_kwargs.pop('global_oc_grad_clip_type', 2.0)
         self.grad_clips = {key: modules_optim_kwargs[key].pop('gradient_clip_val', None) for key in\
+                           modules_optim_kwargs.keys()}
+        self.grad_types = {key: modules_optim_kwargs[key].pop('gradient_clip_type', 2.0) for key in\
                            modules_optim_kwargs.keys()}
         scheduler_kwargs = {key: modules_optim_kwargs[key].pop('lr_scheduler', None) for key in\
                             modules_optim_kwargs.keys()}
@@ -78,7 +77,7 @@ class OCOptimizer():
         self.all_optimizer_kwargs = ocr_optimizer_kwargs
         if self.policy is not None:
             self.all_optimizer_kwargs.append({'name': 'policy', 'params': [outp[1] for outp in named_params_by_module['policy']],
-                                              'lr': modules_optim_kwargs['policy_optimizer']['lr']})
+                                              **modules_optim_kwargs['policy_optimizer']})
         
         self.rl_optimizer = torch.optim.AdamW(self.all_optimizer_kwargs)
         self.oc_optimizer = torch.optim.AdamW(self.all_optimizer_kwargs)
@@ -130,17 +129,15 @@ class OCOptimizer():
         target_optim = self.rl_optimizer if optim_name == 'rl' else self.oc_optimizer
         
         module_named_params = self._get_grouped_named_params()
-        if self.global_grad_clip is not None:
+        if self.oc_global_grad_clip is not None:
             params = self.oc_model.parameters()
-            if self.policy is not None:
-                params = itertools.chain(params, self.policy.parameters())
-            metrics[f'tr_global_grad_norm/{optim_name}_optim'] = clip_grad_norm_(params, self.global_grad_clip, 
-                                                                                 norm_type = self.grad_clip_type)
+            metrics[f'tr_oc_global_grad_norm/{optim_name}_optim'] = clip_grad_norm_(params, self.oc_global_grad_clip, 
+                                                                                    norm_type = self.oc_grad_clip_type)
         for key in module_named_params.keys():
             params = [outp[1] for outp in module_named_params[key]]
             if self.grad_clips[f'{key}_optimizer']:
                 metrics[f'tr_grad_norm/{key}_{optim_name}_optim'] = clip_grad_norm_(
-                    params, self.grad_clips[f'{key}_optimizer'], norm_type = self.grad_clip_type
+                    params, self.grad_clips[f'{key}_optimizer'], norm_type = self.grad_types[f'{key}_optimizer']
                 )
             weight_norm = self.get_weight_norm([key])
             metrics[f'tr_weight_norm/{key}_{optim_name}_optim'] = weight_norm

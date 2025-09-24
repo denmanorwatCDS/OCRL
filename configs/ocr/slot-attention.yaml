@@ -36,8 +36,8 @@ slotattr:
     coef: 0.02
 
 optimizer:
-  global_gradient_clip_val: 0.05
-  grad_clip_type: 'inf'
+  global_oc_gradient_clip_val: 0.05
+  global_oc_grad_clip_type: 'inf'
   encoder_optimizer:
     lr: 1e-4
     weight_decay: 0.05

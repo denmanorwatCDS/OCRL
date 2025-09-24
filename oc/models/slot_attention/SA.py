@@ -125,7 +125,8 @@ class Slot_Attention(OC_model):
             feat_mean, feat_std = self._slot_attention.log_feat_mean_std()
 
         metrics = {
-            'total_loss': SA_loss.cpu().numpy(), 'recon_loss': SA_loss.cpu().numpy(), 'drop_recon_loss': drop_SA_loss.cpu().numpy(),
+            'total_loss': SA_loss.cpu().numpy(), 'recon_loss': SA_loss.cpu().numpy(), 
+            'drop_recon_loss': drop_SA_loss.cpu().numpy(),
             'slot_mean': slot_mean.cpu().numpy(), 'slot_std': slot_std.cpu().numpy(), 
             'feat_mean': feat_mean.cpu().numpy(), 'feat_std': feat_std.cpu().numpy(),
             'reconstructions': {'no_dropout': self.convert_tensor_to_img(recon),

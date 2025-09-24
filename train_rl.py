@@ -18,9 +18,9 @@ from oc import ocrs
 from oc.optimizer.optimizer import OCOptimizer
 from RL.policy import Policy
 from RL.rollout_buffer import OCRolloutBuffer
-from utils.train_tools import infer_obs_action_shape, make_env, update_episodic_metrics_, update_curves_, get_uint_to_float
+from utils.train_tools import infer_obs_action_shape, make_env, update_curves_, get_uint_to_float, stop_oc_optimizer_
 from data_utils.H5_dataset import H5Dataset
-from utils.eval_tools import calculate_explained_variance, evaluate_ocr_model, log_ppg_results
+from utils.eval_tools import calculate_explained_variance, evaluate_ocr_model, get_episodic_metrics, log_ppg_results, add_prefix, Metrics
 
 @hydra.main(config_path="configs/", config_name="train_rl")
 def main(config):
@@ -88,6 +88,8 @@ def main(config):
     oc_model = oc_model.to('cuda')
     ocr_optimizer, policy_optimizer = omegaconf.OmegaConf.to_container(config.ocr.optimizer), \
         omegaconf.OmegaConf.to_container(config.sb3.optimizer)
+    if not config.sb3.train_feature_extractor:
+        stop_oc_optimizer_(oc_model, ocr_optimizer)
     all_optimizer_config = {**ocr_optimizer, **policy_optimizer}
 
     optimizer = OCOptimizer(all_optimizer_config, oc_model = oc_model, policy = agent)
@@ -95,9 +97,9 @@ def main(config):
     global_step = 0
     start_time = time.time()
     next_obs, next_done = torch.Tensor(envs.reset()).to(device), torch.zeros(config.num_envs).to(device)
-
+    
+    metrics = Metrics()
     for iteration in range(1, int(config.max_steps + 1) // config.sb3.n_steps):
-        metrics = {}
         for step in range(0, config.sb3.n_steps, config.num_envs):
             global_step += config.num_envs
 
@@ -113,14 +115,13 @@ def main(config):
             rollout_buffer.save_transition(tran)
             next_obs, next_done = torch.Tensor(next_obs).to(device), torch.Tensor(next_done).to(device)
             
-            update_episodic_metrics_(metrics, next_done, infos)
+            metrics.multiple_update(get_episodic_metrics(next_done, infos))
         
         with torch.no_grad():
             next_value = agent.get_value(slots)
         rollout_buffer.finalize_tensors_calculate_and_store_GAE(last_done = next_done, 
                                                                 last_value = next_value)
         
-        clipfracs = []
         for batch, start_obs, future_obs in rollout_buffer.convert_transitions_to_rollout():
             slots = oc_model.get_slots(batch['obs'], training = False)
             if not config.sb3.train_feature_extractor:
@@ -134,7 +135,7 @@ def main(config):
                 # calculate approx_kl http://joschu.net/blog/kl-approx.html
                 old_approx_kl = (-logratio).mean()
                 approx_kl = ((ratio - 1) - logratio).mean()
-                clipfracs += [((ratio - 1.0).abs() > config.sb3.clip_range).float().mean().item()]
+                clipfracs = ((ratio - 1.0).abs() > config.sb3.clip_range).float().mean().item()
             
             normalized_advantages = (batch['advantage'] - batch['advantage'].mean()) / (batch['advantage'].std() + 1e-8)
             pg_loss1 = -normalized_advantages * ratio
@@ -143,16 +144,22 @@ def main(config):
             v_loss = 0.5 * ((newvalue - batch['return']) ** 2).mean()
             entropy_loss = entropy.mean()
             oc_loss, mets = oc_model.get_loss(obs = start_obs, future_obs = future_obs, do_dropout = True)
-            if config.sb3.train_feature_extractor:
+            mets = add_prefix(mets, 'oc')
+            if not config.sb3.train_feature_extractor:
                 oc_loss = 0
             loss = pg_loss - config.sb3.ent_coef * entropy_loss + config.sb3.vf_coef * v_loss + oc_loss
             optimizer.optimizer_zero_grad()
             loss.backward()
             metrics.update(optimizer.optimizer_step('rl'))
             metrics.update(mets)
+            metrics.update({'ppo/value_loss': v_loss.item(), 'ppo/policy_gradient_loss': pg_loss.item(), 
+                            'ppo/entropy_loss': entropy_loss.item(),
+                            'ppo/approx_kl': approx_kl.item(), 'ppo/old_approx_kl': old_approx_kl.item(), 
+                            'ppo/clip_fraction': clipfracs})
 
         if oc_model.requires_ppg() and iteration % config.sb3.ppg_freq:
             optimizer.optimizer_zero_grad()
+            # TODO check that target models preserve their weights
             target_oc_model, target_agent = deepcopy(oc_model), deepcopy(agent)
             target_oc_model.inference_mode(), target_agent.inference_mode()
             ppg_curves = {}
@@ -187,12 +194,9 @@ def main(config):
         y_true, y_pred = rollout_buffer.get_return_value()
         explained_variance = calculate_explained_variance(y_true, y_pred)
         rollout_buffer.reset_trajectories()
-        metrics.update({'losses/value': v_loss.item(), 'losses/policy_gradient': pg_loss.item(), 
-                        'losses/entropy': entropy_loss.item(), 'losses/explained_variance': explained_variance,
-                        'ppo/approx_kl': approx_kl.item(), 'ppo/old_approx_kl': old_approx_kl.item(), 
-                        'ppo/clip_fraction': np.mean(clipfracs), 
+        metrics.update({'ppo/explained_variance': explained_variance, 
                         'ppo/steps_per_second': int(global_step / (time.time() - start_time))})
-        experiment.log_metrics(metrics, step = global_step)
+        experiment.log_metrics(metrics.convert_to_dict(), step = global_step)
         
 if __name__ == "__main__":
     main()

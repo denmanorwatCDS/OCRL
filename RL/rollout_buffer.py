@@ -159,14 +159,14 @@ class OCRolloutBuffer():
         if self.augmenter is not None:
             # Write code for parallel augmentation application for significant speedup
             raise NotImplementedError
-        start_subdataset = torch.stack(start_subdataset, dim = 0).to(self.device)
-        finish_subdataset = torch.stack(finish_subdataset, dim = 0).to(self.device)
+        start_subdataset = torch.stack(start_subdataset, dim = 0)
+        finish_subdataset = torch.stack(finish_subdataset, dim = 0)
         if self.use_future:
             for i in range(0, num_samples, batch_size):
-                yield start_subdataset[i: i + batch_size], finish_subdataset[i: i + batch_size]
+                yield start_subdataset[i: i + batch_size].to(self.device), finish_subdataset[i: i + batch_size].to(self.device)
         else:
             for i in range(0, num_samples, batch_size):
-                yield start_subdataset[i: i + batch_size], torch.full((batch_size,), torch.nan)
+                yield start_subdataset[i: i + batch_size].to(self.device), torch.full((batch_size,), torch.nan).to(self.device)
     
     def reset_trajectories(self):
         self.global_to_local_idx = {}
