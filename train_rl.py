@@ -27,7 +27,7 @@ def main(config):
     PATH_TO_TRAIN_RL_DOT_PY = sys.path[0]
     experiment = Experiment(
         api_key = 'bbCMVUhDwSJsEqwcmhZ2MXdfE',
-        project_name = 'test_PPO_cleanRL',
+        project_name = 'Refactored_OCRL',
         workspace = 'denmanorwat'
         )
     dataset_path = '/'.join([config.dataset_root_path, 
