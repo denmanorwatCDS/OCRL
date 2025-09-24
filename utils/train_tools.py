@@ -100,4 +100,4 @@ def get_uint_to_float(min_val, max_val):
 def stop_oc_optimizer_(oc_model, optimizer_config):
     for module_name in oc_model.get_grouped_parameters().keys():
         optim_name = '_'.join([module_name, 'optimizer'])
-        optimizer_config[optim_name]['lr'], optimizer_config[optim_name]['weight_decay'] = 0., 0.
+        del optimizer_config[optim_name]

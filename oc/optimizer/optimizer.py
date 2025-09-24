@@ -40,12 +40,12 @@ class OCOptimizer():
         named_params_by_module = self._get_grouped_named_params()
         
         # There could be many parameters for same optimizer
-        modules_optim_kwargs = deepcopy(self.optim_config)
         modules_paramwise_lrs = self.oc_model.get_paramwise_lr()
         if self.policy is not None:
             modules_paramwise_lrs = {**modules_paramwise_lrs, **self.policy.get_paramwise_lr()}
-        self.oc_global_grad_clip = modules_optim_kwargs.pop('global_oc_gradient_clip_val', None)
-        self.oc_grad_clip_type = modules_optim_kwargs.pop('global_oc_grad_clip_type', 2.0)
+        self.oc_global_grad_clip = self.optim_config.pop('global_oc_gradient_clip_val', None)
+        self.oc_grad_clip_type = self.optim_config.pop('global_oc_grad_clip_type', 2.0)
+        modules_optim_kwargs = deepcopy(self.optim_config)
         self.grad_clips = {key: modules_optim_kwargs[key].pop('gradient_clip_val', None) for key in\
                            modules_optim_kwargs.keys()}
         self.grad_types = {key: modules_optim_kwargs[key].pop('gradient_clip_type', 2.0) for key in\
@@ -133,14 +133,15 @@ class OCOptimizer():
             params = self.oc_model.parameters()
             metrics[f'tr_oc_global_grad_norm/{optim_name}_optim'] = clip_grad_norm_(params, self.oc_global_grad_clip, 
                                                                                     norm_type = self.oc_grad_clip_type)
-        for key in module_named_params.keys():
-            params = [outp[1] for outp in module_named_params[key]]
-            if self.grad_clips[f'{key}_optimizer']:
-                metrics[f'tr_grad_norm/{key}_{optim_name}_optim'] = clip_grad_norm_(
-                    params, self.grad_clips[f'{key}_optimizer'], norm_type = self.grad_types[f'{key}_optimizer']
+        for key in self.optim_config.keys():
+            module_name = key.split('_')[0]
+            params = [outp[1] for outp in module_named_params[module_name]]
+            if self.grad_clips[key]:
+                metrics[f'tr_grad_norm/{module_name}_{optim_name}_optim'] = clip_grad_norm_(
+                    params, self.grad_clips[key], norm_type = self.grad_types[key]
                 )
-            weight_norm = self.get_weight_norm([key])
-            metrics[f'tr_weight_norm/{key}_{optim_name}_optim'] = weight_norm
+            weight_norm = self.get_weight_norm([module_name])
+            metrics[f'tr_weight_norm/{module_name}_{optim_name}_optim'] = weight_norm
         self.rl_scheduler.step(), self.oc_scheduler.step(), target_optim.step()
         mean_lr, mean_decay = {}, {}
         for i in range(len(target_optim.param_groups)):
