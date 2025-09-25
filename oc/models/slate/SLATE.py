@@ -10,6 +10,7 @@ from oc.models.utils.slot_attention import SlotAttentionModule
 from oc.models.slate.submodels import dVAE, LearnedPositionalEncoding, TransformerDecoder, gumbel_softmax, cosine_anneal
 
 # TODO make dict parameters as mixin into classes, not as method implemented in 100500 models
+# TODO change implementation to original SLATE! This pseudoconverter is redundant, and may be even harmfull!
 class SLATE(OC_model):
     def __init__(self, ocr_config, obs_size, obs_channels) -> None:
         super(SLATE, self).__init__(ocr_config = ocr_config,

@@ -99,6 +99,11 @@ def main(config):
     next_obs, next_done = torch.Tensor(envs.reset()).to(device), torch.zeros(config.num_envs).to(device)
     
     metrics = Metrics()
+    logs_before_ppg, imgs_before_ppg = evaluate_ocr_model(oc_model, val_dataloader)
+    log_ppg_results(experiment = experiment, step = 0, 
+                    logs_before_ppg = logs_before_ppg, imgs_before_ppg = imgs_before_ppg,
+                    logs_after_ppg = logs_before_ppg, imgs_after_ppg = imgs_before_ppg,
+                    curves = ppg_curves)
     for iteration in range(1, int(config.max_steps + 1) // config.sb3.n_steps):
         for step in range(0, config.sb3.n_steps, config.num_envs):
             global_step += config.num_envs

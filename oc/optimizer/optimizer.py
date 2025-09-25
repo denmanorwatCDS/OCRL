@@ -9,6 +9,7 @@ from torch import nn
 from statistics import mean
 from copy import deepcopy
 
+# TODO fix LR schedulers, as RL scheduler is much slower than OC one. Maybe, throw them away altogether?
 def calculate_weight_norm(params):
     norm = []
     for param in params:
