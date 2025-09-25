@@ -157,7 +157,7 @@ def main(config):
                             'ppo/approx_kl': approx_kl.item(), 'ppo/old_approx_kl': old_approx_kl.item(), 
                             'ppo/clip_fraction': clipfracs})
 
-        if oc_model.requires_ppg() and iteration % config.sb3.ppg_freq:
+        if oc_model.requires_ppg() and iteration % config.sb3.ppg_freq == 0:
             optimizer.optimizer_zero_grad()
             # TODO check that target models preserve their weights
             target_oc_model, target_agent = deepcopy(oc_model), deepcopy(agent)
