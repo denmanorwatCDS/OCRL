@@ -6,7 +6,7 @@ def frame_consistency_loss(starting_slots, future_slots):
     slot_1, slot_2 = torch.unsqueeze(starting_slots, axis = 1), torch.unsqueeze(future_slots, axis = 2)
     distance_matrix = torch.abs(slot_1 - slot_2)
     scores = torch.exp(
-        -torch.sum(distance_matrix, axis = -1)
+        -torch.mean(distance_matrix, axis = -1)
             ) / 2
     positive_scores = torch.diagonal(scores, dim1 = 1, dim2 = 2)
     negative_scores = torch.sum(scores, dim = 1)
@@ -40,7 +40,7 @@ def time_loss(starting_slots, future_slots):
     # It is of shape batch x batch. Model scores as Laplace distribution with b = 1
     scores = torch.exp(
         -torch.mean(
-            torch.sum(torch.abs(permuted_starting_slots - permuted_future_slots), axis = -1)
+            torch.mean(torch.abs(permuted_starting_slots - permuted_future_slots), axis = -1)
             , axis = -1)) / 2
     positive_scores = torch.diagonal(scores)
     negative_scores = torch.sum(scores, dim = 1)

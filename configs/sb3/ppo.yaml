@@ -12,7 +12,6 @@ bc_mult: 1.
 ppg_freq: 8
 ppg_epochs: 8
 rollout_epochs: 10
-train_every_rollout: 1
 pretrain_steps: 30_000
 
 optimizer:
