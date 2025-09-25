@@ -54,7 +54,7 @@ def main(config):
     train_dataset = H5Dataset(datafile = path_to_target_dataset, uint_to_float = uint_to_float, 
                               use_future = config.ocr.slotattr.matching_loss.use, 
                               future_steps = config.ocr.slotattr.matching_loss.steps_into_future,
-                              augment = augment, is_train = True)
+                              augment = augment, is_train = True, debug = config.debug)
     val_dataset = H5Dataset(datafile = path_to_target_dataset, uint_to_float = uint_to_float,
                             use_future = False, 
                             future_steps = config.ocr.slotattr.matching_loss.steps_into_future, 

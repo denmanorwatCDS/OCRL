@@ -4,7 +4,7 @@ from torch.utils.data import Dataset
 
 class H5Dataset(Dataset):
     def __init__(self, datafile, uint_to_float, use_future, future_steps, 
-                 augment = None, is_train = True):
+                 augment = None, is_train = True, debug = False):
         f = h5py.File(datafile, "r")
         self.is_train = is_train
         self.extract_masks = False
@@ -12,7 +12,12 @@ class H5Dataset(Dataset):
         self.uint_to_float = uint_to_float
         self.use_future, self.future_steps = use_future, future_steps
         if is_train:
-            self._data = f['TrainingSet']
+            self._data = {}
+            if debug:
+                self._data['dones'] = f['TrainingSet']['dones'][:10_000]
+                self._data['obss'] = f['TrainingSet']['obss'][:10_000]
+            else:
+                self._data = f['TrainingSet']
             self.future_step_proba = self.precalculate_data()
         else:
             self._data = f['ValidationSet']

@@ -2,7 +2,7 @@ data_folder: null
 device: 'cpu'
 tags: ""
 seed: 0
-
+debug: False
 load:
     resume_run_path: null
     resume_checkpoint: null
