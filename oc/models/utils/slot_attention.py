@@ -18,8 +18,11 @@ class Queue():
             self.features.pop(0)
     
     def calculate_mean_std(self):
-        features = torch.cat(self.features, dim = 0)
-        return torch.mean(features, dim = 0), torch.std(features, dim = 0)
+        if self.features:
+            features = torch.cat(self.features, dim = 0)
+            return torch.mean(features, dim = 0), torch.std(features, dim = 0)
+        else:
+            return torch.tensor(torch.nan), torch.tensor(torch.nan)
 
 
 class SlotAttention(nn.Module):
