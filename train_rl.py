@@ -103,7 +103,7 @@ def main(config):
     log_ppg_results(experiment = experiment, step = 0, 
                     logs_before_ppg = logs_before_ppg, imgs_before_ppg = imgs_before_ppg,
                     logs_after_ppg = logs_before_ppg, imgs_after_ppg = imgs_before_ppg,
-                    curves = ppg_curves)
+                    curves = {})
     for iteration in range(1, int(config.max_steps + 1) // config.sb3.n_steps):
         for step in range(0, config.sb3.n_steps, config.num_envs):
             global_step += config.num_envs
