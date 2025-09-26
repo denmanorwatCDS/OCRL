@@ -85,7 +85,7 @@ class SlotAttention(nn.Module):
         elif preinit_type == 'trainable':
             self.slot_log_sigma = nn.Parameter(torch.zeros(1, 1, slot_size))
             nn.init.xavier_uniform_(self.slot_log_sigma)
-            self.initial_slots = nn.Parameter(torch.zeros(1, 1, slot_size))
+            self.initial_slots = nn.Parameter(torch.zeros(1, self.num_slots, slot_size))
             nn.init.xavier_uniform_(self.initial_slots)
 
 
