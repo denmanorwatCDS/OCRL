@@ -83,7 +83,7 @@ class SlotAttention(nn.Module):
             nn.init.xavier_uniform_(self.slot_log_sigma)
 
         elif preinit_type == 'trainable':
-            self.slot_log_sigma = nn.Parameter(torch.zeros(1, 1, slot_size))
+            self.slot_log_sigma = nn.Parameter(torch.zeros(1, self.num_slots, slot_size))
             nn.init.xavier_uniform_(self.slot_log_sigma)
             self.initial_slots = nn.Parameter(torch.zeros(1, self.num_slots, slot_size))
             nn.init.xavier_uniform_(self.initial_slots)
@@ -154,13 +154,12 @@ class SlotAttention(nn.Module):
     
     def prepare_slots(self, x):
         B, *_ = x.size()
-        
         if self.preinit_type == 'classic':
             init_slots = x.new_empty(B, self.num_slots, self.slot_size).normal_()
             init_slots = self.slot_mu + torch.exp(self.slot_log_sigma) * init_slots
         elif self.preinit_type == 'trainable':
             init_slots = self.initial_slots.repeat((B, 1, 1))
-            init_slots = init_slots + torch.normal(mean = 0, std = 1, size = init_slots.shape).cuda()*\
+            init_slots = init_slots + torch.normal(mean = 0, std = 1, size = (B, self.num_slots, self.slot_size)).cuda()*\
                 torch.exp(self.slot_log_sigma)
         elif self.preinit_type == 'statistics':
             init_slots = x.new_empty(B, self.num_slots, self.slot_size).normal_()
