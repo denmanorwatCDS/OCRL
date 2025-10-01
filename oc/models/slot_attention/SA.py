@@ -8,6 +8,7 @@ from oc.models.slot_attention.submodels import BroadCastDecoder
 from oc.models.oc_model import OC_model
 from oc.models.utils.losses import hungarian_loss
 from itertools import chain
+from oc.models.utils.networks import linear
 
 # TODO make dict parameters as mixin into classes, not as method implemented in 100500 models
 class Slot_Attention(OC_model):
@@ -47,6 +48,11 @@ class Slot_Attention(OC_model):
                                      initial_size = ocr_config.initial_size)
         self.use_hungarian_loss = ocr_config.slotattr.matching_loss.use
         self.hungarian_coef = ocr_config.slotattr.matching_loss.coef
+        if self.use_hungarian_loss:
+            self.contrastive_projector = nn.Sequential(
+                linear(ocr_config.slotattr.slot_size, ocr_config.slotattr.slot_size, weight_init="kaiming"),
+                nn.ReLU(),
+                linear(ocr_config.slotattr.slot_size, ocr_config.slotattr.slot_size))
 
     def _get_slot_params(self):
         return self._slot_attention.named_parameters()
@@ -93,7 +99,9 @@ class Slot_Attention(OC_model):
         mets = {'total_loss': SA_loss.detach().cpu(),
                 'SA_loss': SA_loss.detach().cpu()}
         if self.use_hungarian_loss:
-            hung_loss = hungarian_loss(slots, self._get_slots(future_obs, do_dropout = do_dropout, training = True)[0]) * self.hungarian_coef
+            future_slots = self._get_slots(future_obs, do_dropout = do_dropout, training = True)[0]
+            slots, future_slots = self.contrastive_projector(slots), self.contrastive_projector(future_slots)
+            hung_loss = hungarian_loss(slots, future_slots) * self.hungarian_coef
             mets.update({'hungarian_loss': hung_loss.detach().cpu()})
         total_loss = SA_loss + hung_loss
         return total_loss, mets

@@ -84,6 +84,11 @@ class SLATE(OC_model):
         self._out = linear(d_model, vocab_size, bias=False)
         self.use_hungarian_loss = ocr_config.slotattr.matching_loss.use
         self.hungarian_coef = ocr_config.slotattr.matching_loss.coef
+        if self.use_hungarian_loss:
+            self.contrastive_projector = nn.Sequential(
+                linear(ocr_config.slotattr.slot_size, ocr_config.slotattr.slot_size, weight_init="kaiming"),
+                nn.ReLU(),
+                linear(ocr_config.slotattr.slot_size, ocr_config.slotattr.slot_size))
 
     def get_enc_params(self):
         return chain(self._enc.named_parameters(),
@@ -171,7 +176,9 @@ class SLATE(OC_model):
                 'cross_entropy': cross_entropy.detach().cpu()}
         hung_loss = 0
         if self.use_hungarian_loss:
-            hung_loss = hungarian_loss(slots, self._get_slots(future_obs, do_dropout = do_dropout, training = True)[0]) * self.hungarian_coef
+            future_slots = self._get_slots(future_obs, do_dropout = do_dropout, training = True)[0]
+            slots, future_slots = self.contrastive_projector(slots), self.contrastive_projector(future_slots)
+            hung_loss = hungarian_loss(slots, future_slots) * self.hungarian_coef
             mets.update({'hungarian_loss': hung_loss.detach().cpu()})
         total_loss += hung_loss
         return total_loss, mets
