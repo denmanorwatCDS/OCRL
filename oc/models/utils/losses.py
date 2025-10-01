@@ -8,7 +8,7 @@ def frame_consistency_loss(starting_slots, future_slots, tau):
     norm_product = torch.linalg.norm(slot_1, axis = -1) * torch.linalg.norm(slot_2, axis = -1)
     similarity = torch.exp((scalar_product / norm_product) / tau)
     positive_scores = torch.diagonal(similarity)
-    torch.diagonal(similarity) = 0
+    torch.diagonal(similarity).zero_()
     negative_scores = torch.sum(similarity, dim = 1)
     frame_contrastive = -torch.log(torch.mean(positive_scores / negative_scores))
     return frame_contrastive
@@ -42,7 +42,7 @@ def time_loss(starting_slots, future_slots, tau):
     norm_product = torch.linalg.norm(permuted_starting_slots, axis = -1) * torch.linalg.norm(permuted_future_slots, axis = -1)
     similarity = torch.exp((scalar_product / norm_product) / tau)
     positive_scores = torch.diagonal(similarity)
-    torch.diagonal(similarity) = 0
+    torch.diagonal(similarity).zero_()
     negative_scores = torch.sum(similarity, dim = 1)
     timestep_contrastive = -torch.log(torch.mean(positive_scores / negative_scores))
     return timestep_contrastive
