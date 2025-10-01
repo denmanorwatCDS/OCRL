@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
+from oc.models.utils import activations
 from oc.models.utils.networks import linear, gru_cell
 
 class Queue():
@@ -35,7 +35,7 @@ class SlotAttention(nn.Module):
         mlp_hidden_size,
         heads,
         preinit_type,
-        normalize_keys,
+        normalizer,
         epsilon=1e-8,
     ):
         super().__init__()
@@ -55,16 +55,13 @@ class SlotAttention(nn.Module):
         self.norm_mlp = nn.LayerNorm(slot_size)
 
         # Linear maps for the attention module.
-        self.project_q = linear(slot_size, slot_size, bias=False)
-        self.project_k = linear(input_size, slot_size, bias=False)
-        self.key_normalizer = lambda x: x
-        if normalize_keys:
-            def key_normalizer(x):
-                clipping_needed = torch.linalg.vector_norm(x, ord = 2, dim = -1, keepdim = True) > 1.
-                return torch.where(clipping_needed, x / torch.linalg.vector_norm(x, ord = 2, dim = -1, keepdim = True),
-                                   x)
-            self.key_normalizer = key_normalizer
-        self.project_v = linear(input_size, slot_size, bias=False)
+        normalizer_cls = torch.nn.Identity
+        if normalizer:
+            normalizer_cls = getattr(activations, normalizer)
+        
+        self.project_q = nn.Sequential(linear(slot_size, slot_size, bias = False), normalizer_cls())
+        self.project_k = nn.Sequential(linear(input_size, slot_size, bias = False), normalizer_cls())
+        self.project_v = nn.Sequential(linear(input_size, slot_size, bias = False), normalizer_cls())
 
         # Slot update functions.
         self.gru = gru_cell(slot_size, slot_size)
@@ -99,7 +96,7 @@ class SlotAttention(nn.Module):
 
         inputs = self.norm_inputs(inputs)
         k = (
-            self.key_normalizer(self.project_k(inputs)).view(B, N_kv, self.num_heads, -1).transpose(1, 2)
+            self.project_k(inputs).view(B, N_kv, self.num_heads, -1).transpose(1, 2)
         )  # Shape: [batch_size, num_heads, num_inputs, slot_size // num_heads].
         v = (
             self.project_v(inputs).view(B, N_kv, self.num_heads, -1).transpose(1, 2)
@@ -204,8 +201,7 @@ class SlotAttentionModule(nn.Module):
         mlp_hidden_size,
         num_heads,
         preinit_type,
-        normalize_keys,
-        squash_features
+        normalizer,
     ):
         super().__init__()
 
@@ -214,7 +210,6 @@ class SlotAttentionModule(nn.Module):
         self.input_channels = input_channels
         self.slot_size = slot_size
         self.mlp_hidden_size = mlp_hidden_size
-        self.squash_features = squash_features
 
         self.layer_norm = nn.LayerNorm(input_channels)
         self.mlp = nn.Sequential(
@@ -231,15 +226,13 @@ class SlotAttentionModule(nn.Module):
             mlp_hidden_size,
             num_heads,
             preinit_type,
-            normalize_keys = normalize_keys
+            normalizer = normalizer
         )
 
     def forward(self, input):
         # `image` has shape: [batch_size, img_channels, img_height, img_width].
         # `encoder_grid` has shape: [batch_size, pos_channels, enc_height, enc_width].
         x = self.mlp(self.layer_norm(input))
-        if self.squash_features:
-            x = torch.tanh(x)
         # `x` has shape: [batch_size, enc_height * enc_width, cnn_hidden_size].
         # Slot Attention module.
         slots = self.slot_attention.prepare_slots(input)
