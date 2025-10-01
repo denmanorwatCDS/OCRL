@@ -166,7 +166,7 @@ class SlotAttention(nn.Module):
     
     def update_statistics(self, batch):
         with torch.no_grad():
-            batch_keys = self.key_normalizer(self.project_k(batch)).detach().clone()
+            batch_keys = self.project_k(batch).detach().clone()
             self.feature_dist.add_batch(batch_keys)
 
     def log_slot_mean_std(self):
