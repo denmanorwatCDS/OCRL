@@ -42,7 +42,7 @@ def hungarian_loss(starting_slots, future_slots, tau = 1.):
     starting_slots_ = torch.unsqueeze(starting_slots, axis = 3).detach()
     future_slots_ = torch.unsqueeze(future_slots, axis = 2).detach()
     # Now, costs tensor is of shape: batch x batch x slots x slots
-    costs = similarity_func(starting_slots_, future_slots_).cpu().numpy()
+    costs = similarity_func(starting_slots_, future_slots_, tau).cpu().numpy()
     matched_idxs = np.full((batch_shape, batch_shape, 2, slot_qty, slot_size), np.nan)
     for image_1_idx in range(batch_shape):
         for image_2_idx in range(batch_shape):
