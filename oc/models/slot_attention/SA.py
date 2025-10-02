@@ -52,7 +52,8 @@ class Slot_Attention(OC_model):
             self.contrastive_projector = nn.Sequential(
                 linear(ocr_config.slotattr.slot_size, ocr_config.slotattr.slot_size, weight_init="kaiming"),
                 nn.ReLU(),
-                linear(ocr_config.slotattr.slot_size, ocr_config.slotattr.slot_size))
+                linear(ocr_config.slotattr.slot_size, ocr_config.slotattr.slot_size),
+                nn.Tanh())
 
     def _get_slot_params(self):
         return self._slot_attention.named_parameters()
