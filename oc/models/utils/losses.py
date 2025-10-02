@@ -30,7 +30,7 @@ def time_loss(matched_starting_slots, matched_future_slots, tau):
     timestep_contrastive = -torch.log(torch.mean(positive_scores / (negative_scores + 1e-3)))
     return timestep_contrastive
 
-def hungarian_loss(starting_slots, future_slots, tau = 0.1):
+def hungarian_loss(starting_slots, future_slots, tau = 1.):
     batch_shape, slot_qty, slot_size = starting_slots.shape[0], starting_slots.shape[1], starting_slots.shape[2]
     # Initial shape: batch x slots x slot_size
     # Add second batch dimension
