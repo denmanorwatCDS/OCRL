@@ -6,7 +6,7 @@ def similarity_func(slots1, slots2, tau):
     scalar_product = torch.sum(slots1 * slots2, axis=-1)
     norm_product = torch.linalg.norm(slots1, axis = -1, ord = 2) *\
         torch.linalg.norm(slots2, axis = -1, ord = 2)
-    similarity = torch.exp((scalar_product / (norm_product + 1e-5)) / tau)
+    similarity = torch.exp((scalar_product / (norm_product + 1e-3)) / tau)
     return similarity
 
 def frame_consistency_loss(matched_starting_slots, matched_future_slots, tau):
@@ -18,7 +18,7 @@ def frame_consistency_loss(matched_starting_slots, matched_future_slots, tau):
     similarity = similarity_func(matched_starting_slots, matched_future_slots, tau)
     positive_scores = torch.diagonal(similarity, dim1 = -2, dim2 = -1)
     negative_scores = torch.sum(similarity, dim = 1) - positive_scores
-    frame_contrastive = -torch.log(torch.mean(positive_scores / (negative_scores + 1e-5)))
+    frame_contrastive = -torch.log(torch.mean(positive_scores / (negative_scores + 1e-3)))
     return frame_contrastive
 
 def time_loss(matched_starting_slots, matched_future_slots, tau):
@@ -27,7 +27,7 @@ def time_loss(matched_starting_slots, matched_future_slots, tau):
     similarity = torch.mean(similarity, axis=-1)
     positive_scores = torch.diagonal(similarity).clone()
     negative_scores = torch.sum(similarity, dim = 1) - positive_scores
-    timestep_contrastive = -torch.log(torch.mean(positive_scores / (negative_scores + 1e-5)))
+    timestep_contrastive = -torch.log(torch.mean(positive_scores / (negative_scores + 1e-3)))
     return timestep_contrastive
 
 def hungarian_loss(starting_slots, future_slots, tau = 0.1):
