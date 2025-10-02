@@ -2,15 +2,20 @@ import torch
 import numpy as np
 from scipy import optimize
 
+def similarity_func(slots1, slots2, tau):
+    scalar_product = torch.sum(slots1 * slots2, axis=-1)
+    norm_product = torch.linalg.norm(slots1, axis = -1, ord = 2) *\
+        torch.linalg.norm(slots2, axis = -1, ord = 2)
+    similarity = torch.exp((scalar_product / norm_product) / tau)
+    return similarity
+
 def frame_consistency_loss(matched_starting_slots, matched_future_slots, tau):
     batch_shape = matched_starting_slots.shape[0]
     matched_starting_slots = matched_starting_slots[torch.arange(batch_shape), torch.arange(batch_shape)]
     matched_future_slots = matched_future_slots[torch.arange(batch_shape), torch.arange(batch_shape)]
     matched_starting_slots = torch.unsqueeze(matched_starting_slots, dim = 1)
     matched_future_slots = torch.unsqueeze(matched_future_slots, dim = 2)
-    scalar_product = torch.sum(matched_starting_slots * matched_future_slots, axis=-1)
-    norm_product = torch.linalg.norm(matched_starting_slots, axis = -1, ord=2) * torch.linalg.norm(matched_future_slots, axis = -1, ord=2)
-    similarity = torch.exp((scalar_product / norm_product) / tau)
+    similarity = similarity_func(matched_starting_slots, matched_future_slots, tau)
     positive_scores = torch.diagonal(similarity, dim1 = -2, dim2 = -1)
     negative_scores = torch.sum(similarity, dim = 1) - positive_scores
     frame_contrastive = -torch.log(torch.mean(positive_scores / negative_scores))
@@ -18,9 +23,8 @@ def frame_consistency_loss(matched_starting_slots, matched_future_slots, tau):
 
 def time_loss(matched_starting_slots, matched_future_slots, tau):
     # It is of shape batch x batch
-    scalar_product = torch.sum(matched_starting_slots*matched_future_slots, axis=-1)
-    norm_product = torch.linalg.norm(matched_starting_slots, axis = -1) * torch.linalg.norm(matched_future_slots, axis = -1)
-    similarity = torch.mean(torch.exp((scalar_product / norm_product) / tau), axis=-1)
+    similarity = similarity_func(matched_starting_slots, matched_future_slots, tau)
+    similarity = torch.mean(similarity, axis=-1)
     positive_scores = torch.diagonal(similarity).clone()
     negative_scores = torch.sum(similarity, dim = 1) - positive_scores
     timestep_contrastive = -torch.log(torch.mean(positive_scores / negative_scores))
@@ -38,7 +42,7 @@ def hungarian_loss(starting_slots, future_slots, tau = 1.):
     starting_slots_ = torch.unsqueeze(starting_slots, axis = 3).detach()
     future_slots_ = torch.unsqueeze(future_slots, axis = 2).detach()
     # Now, costs tensor is of shape: batch x batch x slots x slots
-    costs = torch.mean(torch.abs(starting_slots_ - future_slots_), dim = -1).cpu().numpy()
+    costs = similarity_func(starting_slots_, future_slots_).cpu().numpy()
     matched_idxs = np.full((batch_shape, batch_shape, 2, slot_qty, slot_size), np.nan)
     for image_1_idx in range(batch_shape):
         for image_2_idx in range(batch_shape):
