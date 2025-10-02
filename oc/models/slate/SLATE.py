@@ -88,8 +88,7 @@ class SLATE(OC_model):
             self.contrastive_projector = nn.Sequential(
                 linear(ocr_config.slotattr.slot_size, ocr_config.slotattr.slot_size, weight_init="kaiming"),
                 nn.ReLU(),
-                linear(ocr_config.slotattr.slot_size, ocr_config.slotattr.slot_size),
-                nn.Tanh())
+                linear(ocr_config.slotattr.slot_size, ocr_config.slotattr.slot_size))
 
     def get_enc_params(self):
         return chain(self._enc.named_parameters(),
