@@ -50,6 +50,7 @@ class Slot_Attention(OC_model):
         self.hungarian_coef = ocr_config.slotattr.matching_loss.coef
         if self.use_hungarian_loss:
             self.contrastive_projector = nn.Sequential(
+                nn.Tanh(),
                 linear(ocr_config.slotattr.slot_size, ocr_config.slotattr.slot_size, weight_init="kaiming"),
                 nn.ReLU(),
                 linear(ocr_config.slotattr.slot_size, ocr_config.slotattr.slot_size))
