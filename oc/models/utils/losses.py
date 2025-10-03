@@ -3,7 +3,7 @@ import numpy as np
 from scipy import optimize
 
 def similarity_func(slots1, slots2, tau):
-    scalar_product = torch.sum(slots1 * slots2, axis=-1)
+    scalar_product = torch.sum(slots1 * slots2, axis = -1)
     norm_product = torch.linalg.norm(slots1, axis = -1, ord = 2) *\
         torch.linalg.norm(slots2, axis = -1, ord = 2)
     similarity = torch.exp((scalar_product / (norm_product + 1e-3)) / tau)
@@ -30,7 +30,7 @@ def time_loss(matched_starting_slots, matched_future_slots, tau):
     timestep_contrastive = -torch.log(torch.mean(positive_scores / (negative_scores + 1e-3)))
     return timestep_contrastive
 
-def hungarian_loss(starting_slots, future_slots, tau = 1.):
+def hungarian_loss(starting_slots, future_slots, tau = 0.01):
     batch_shape, slot_qty, slot_size = starting_slots.shape[0], starting_slots.shape[1], starting_slots.shape[2]
     # Initial shape: batch x slots x slot_size
     # Add second batch dimension
@@ -55,5 +55,5 @@ def hungarian_loss(starting_slots, future_slots, tau = 1.):
     permuted_starting_slots = torch.gather(starting_slots, dim = 2, index = matched_idxs[:, :, 0])
     permuted_future_slots = torch.gather(future_slots, dim = 2, index = matched_idxs[:, :, 1])
 
-    return time_loss(permuted_starting_slots, permuted_future_slots, tau) +\
-        frame_consistency_loss(permuted_starting_slots, permuted_future_slots, tau)
+    return (time_loss(permuted_starting_slots, permuted_future_slots, tau) +\
+            frame_consistency_loss(permuted_starting_slots, permuted_future_slots, tau)) / 2
