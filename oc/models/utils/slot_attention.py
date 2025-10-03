@@ -80,8 +80,6 @@ class SlotAttention(nn.Module):
             nn.init.xavier_uniform_(self.slot_log_sigma)
 
         elif preinit_type == 'trainable':
-            initial_std = slot_size**-0.5
-            self.slot_log_sigma = nn.Parameter(torch.log(torch.ones(1, self.num_slots, slot_size) * initial_std))
             self.initial_slots = nn.Parameter(torch.zeros(1, self.num_slots, slot_size))
             nn.init.xavier_uniform_(self.initial_slots)
 
@@ -156,8 +154,6 @@ class SlotAttention(nn.Module):
             init_slots = self.slot_mu + torch.exp(self.slot_log_sigma) * init_slots
         elif self.preinit_type == 'trainable':
             init_slots = self.initial_slots.repeat((B, 1, 1))
-            init_slots = init_slots + torch.normal(mean = 0, std = 1, size = (B, self.num_slots, self.slot_size)).cuda()*\
-                torch.exp(self.slot_log_sigma)
         elif self.preinit_type == 'statistics':
             init_slots = x.new_empty(B, self.num_slots, self.slot_size).normal_()
             mean, std = self.feature_dist.calculate_mean_std()
@@ -173,7 +169,7 @@ class SlotAttention(nn.Module):
         if self.preinit_type == 'classic':
             return self.slot_mu.detach(), torch.exp(self.slot_log_sigma).detach()
         elif self.preinit_type == 'trainable':
-            return self.initial_slots.detach(), torch.exp(self.slot_log_sigma).detach()
+            return self.initial_slots.detach(), torch.zeros(self.initial_slots.shape)
         elif self.preinit_type == 'statistics':
             return self.feature_dist.calculate_mean_std()
         
