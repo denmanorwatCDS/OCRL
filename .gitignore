@@ -3,3 +3,5 @@
 videos
 env_xmls/
 logs/
+*.pyc
+__pycache__/

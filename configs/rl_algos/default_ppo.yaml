@@ -1,7 +1,7 @@
 globals:
   device: 'cuda'
   sample_cpu: true
-  seed: 42
+  seed: 43
   n_thread: 1
   n_parallel: 8
   mlp_arch: [1024, 1024]
@@ -68,7 +68,7 @@ rl_algo:
       name: orthogonal
     output_w_init:
       name: orthogonal
-      std: 0.01
+      gain: 0.01
     layer_normalization: false
     nonlinearity: tanh
     distribution:
@@ -85,14 +85,15 @@ rl_algo:
       name: null
     lr: 1e-4
     dim_option: ${skill.dim_option}
-    hidden_sizes: ${globals.mlp_arch}
-    hidden_w_init:
-      name: orthogonal
-    output_w_init:
-      name: orthogonal
-      std: 1.
-    nonlinearity: tanh
-    layer_normalization: false
+    mlp:
+      hidden_sizes: ${globals.mlp_arch}
+      hidden_w_init:
+        name: orthogonal
+      output_w_init:
+        name: orthogonal
+        gain: 1.
+      nonlinearity: tanh
+      layer_normalization: false
 
 replay_buffer:
   gae_lambda: ${rl_algo.gae_lambda}
@@ -100,7 +101,7 @@ replay_buffer:
   common: null
   skill:
     min_transitions: null
-    max_transitions: 19_200
+    max_transitions: 4_800
     batch_size: 256
   policy:
     min_transitions: null

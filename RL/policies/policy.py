@@ -2,7 +2,6 @@ import torch
 import numpy as np
 from utils.distributions.tanh import TanhNormal
 
-
 class Policy(torch.nn.Module):
     def __init__(self,
                  name,

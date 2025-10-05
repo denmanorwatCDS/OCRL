@@ -2,7 +2,45 @@ import copy
 import torch
 from torch import nn
 from torch.nn import functional as F
-from utils.layer_preprocessing.spectral_norm import spectral_norm 
+from utils.layer_preprocessing.spectral_norm import spectral_norm
+from utils.config_to_module import fetch_activation, fetch_init
+
+def process_init_dict(init_dict):
+    name, gain = init_dict['name'], init_dict.pop('gain', None)
+    return fetch_init(name = name, gain = gain)
+
+def convert_maybe_string_parameters_to_params(hidden_nonlinearity, hidden_w_init, hidden_b_init,
+                                              output_nonlinearities, output_w_inits, output_b_inits):
+    if isinstance(hidden_nonlinearity, str):
+        hidden_nonlinearity = fetch_activation(hidden_nonlinearity)
+    if isinstance(hidden_w_init, dict):
+        hidden_w_init = process_init_dict(hidden_w_init)
+    if isinstance(hidden_b_init, dict):
+        hidden_b_init = process_init_dict(hidden_b_init)
+    
+    if isinstance(output_nonlinearities, list):
+        for i, output_nonlinearity in enumerate(output_nonlinearities):
+            if isinstance(output_nonlinearity, str):
+                output_nonlinearities[i] = fetch_activation(output_nonlinearity)
+    elif isinstance(output_nonlinearities, str):
+        output_nonlinearities = fetch_activation(output_nonlinearities)
+    
+    if isinstance(output_w_inits, list):
+        for i, output_w_init in enumerate(output_w_inits):
+            if isinstance(output_w_init, str):
+                output_w_inits[i] = process_init_dict(output_w_init)
+    elif isinstance(output_w_inits, str):
+        output_w_inits = process_init_dict(output_w_inits)
+        
+    if isinstance(output_b_inits, list):
+        for i, output_b_init in enumerate(output_b_inits):
+            if isinstance(output_b_init, str):
+                output_b_inits[i] = process_init_dict(output_b_init)
+    elif isinstance(output_b_inits, str):
+        output_b_inits = process_init_dict(output_b_inits)
+    
+    return hidden_nonlinearity, hidden_w_init, hidden_b_init, output_nonlinearities, output_w_inits, output_b_inits
+    
 
 class _NonLinearity(nn.Module):
     """Wrapper class for non linear function or module.
@@ -97,7 +135,9 @@ class MultiHeadedMLPModule(nn.Module):
                  spectral_coef=1.,
                  ):
         super().__init__()
-
+        hidden_nonlinearity, hidden_w_init, hidden_b_init, output_nonlinearities, output_w_inits, output_b_inits =\
+            convert_maybe_string_parameters_to_params(hidden_nonlinearity, hidden_w_init, hidden_b_init, 
+                                                      output_nonlinearities, output_w_inits, output_b_inits)
         self._layers = nn.ModuleList()
 
         output_dims = self._check_parameter_for_output_layer(
@@ -204,109 +244,3 @@ class MultiHeadedMLPModule(nn.Module):
             if isinstance(m, nn.Linear):
                 return m
         return None
-
-
-class MLPModule(MultiHeadedMLPModule):
-    """MLP Model.
-
-    A Pytorch module composed only of a multi-layer perceptron (MLP), which
-    maps real-valued inputs to real-valued outputs.
-
-    Args:
-        input_dim (int) : Dimension of the network input.
-        output_dim (int): Dimension of the network output.
-        hidden_sizes (list[int]): Output dimension of dense layer(s).
-            For example, (32, 32) means this MLP consists of two
-            hidden layers, each with 32 hidden units.
-        hidden_nonlinearity (callable or torch.nn.Module): Activation function
-            for intermediate dense layer(s). It should return a torch.Tensor.
-            Set it to None to maintain a linear activation.
-        hidden_w_init (callable): Initializer function for the weight
-            of intermediate dense layer(s). The function should return a
-            torch.Tensor.
-        hidden_b_init (callable): Initializer function for the bias
-            of intermediate dense layer(s). The function should return a
-            torch.Tensor.
-        output_nonlinearity (callable or torch.nn.Module): Activation function
-            for output dense layer. It should return a torch.Tensor.
-            Set it to None to maintain a linear activation.
-        output_w_init (callable): Initializer function for the weight
-            of output dense layer(s). The function should return a
-            torch.Tensor.
-        output_b_init (callable): Initializer function for the bias
-            of output dense layer(s). The function should return a
-            torch.Tensor.
-        layer_normalization (bool): Bool for using layer normalization or not.
-
-    """
-
-    def __init__(self,
-                 input_dim,
-                 output_dim,
-                 hidden_sizes,
-                 hidden_nonlinearity=F.relu,
-                 hidden_w_init=nn.init.xavier_normal_,
-                 hidden_b_init=nn.init.zeros_,
-                 output_nonlinearity=None,
-                 output_w_init=nn.init.xavier_normal_,
-                 output_b_init=nn.init.zeros_,
-                 layer_normalization=False,
-                 **kwargs):
-        super().__init__(1, input_dim, output_dim, hidden_sizes,
-                         hidden_nonlinearity, hidden_w_init, hidden_b_init,
-                         output_nonlinearity, output_w_init, output_b_init,
-                         layer_normalization, **kwargs)
-
-        self._output_dim = output_dim
-
-    # pylint: disable=arguments-differ
-    def forward(self, input_value):
-        """Forward method.
-
-        Args:
-            input_value (torch.Tensor): Input values with (N, *, input_dim)
-                shape.
-
-        Returns:
-            torch.Tensor: Output value
-
-        """
-        return super().forward(input_value)[0]
-
-    @property
-    def output_dim(self):
-        """Return output dimension of network.
-
-        Returns:
-            int: Output dimension of network.
-
-        """
-        return self._output_dim
-    
-class ContinuousMLPQFunction(MLPModule):
-    """
-    Implements a continuous MLP Q-value network.
-
-    It predicts the Q-value for all actions based on the input state. It uses
-    a PyTorch neural network module to fit the function of Q(s, a).
-    """
-
-    def __init__(self, obs_dim, action_dim, **kwargs):
-        """
-        Initialize class with multiple attributes.
-
-        Args:
-            env_spec (garage.envs.env_spec.EnvSpec): Environment specification.
-            nn_module (nn.Module): Neural network module in PyTorch.
-        """
-        self.obs_dim = obs_dim
-        self.action_dim = action_dim
-
-        MLPModule.__init__(self,
-                           input_dim=self.obs_dim + self.action_dim,
-                           output_dim=1,
-                           **kwargs)
-
-    def forward(self, observations, actions):
-        """Return Q-value(s)."""
-        return super().forward(torch.cat([observations, actions], 1))

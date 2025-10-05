@@ -25,22 +25,22 @@ skill:
   dual_dist: null
   dual_lam: 30
   dual_lr: 1e-4
+  dual_wd: 0.
   target_traj_encoder: 0.
-  trajectory_encoder:
-    slot_extractor:
-      name: null
-    slot_pooler:
-      name: null
-    dim_option: ${skill.dim_option}
-    hidden_sizes: ${globals.mlp_arch}
+  slot_pooler:
     lr: 1e-4
-    nonlinearity: relu
-    init_std: 1
-    min_std: 1e-6
-    max_std: null
-    std_parameterization: 'exp'
-    bias: True
-    spectral_normalization: false
+    wd: 0.
+    name: Identity
+    kwargs: {}
+  trajectory_encoder:
+    dim_option: ${skill.dim_option}
+    lr: 1e-4
+    wd: 0.
+    mlp:
+      hidden_sizes: ${globals.mlp_arch}
+      hidden_nonlinearity: relu
+      layer_normalization: false
+
 
 rl_algo:
   name: 'SAC'
@@ -50,39 +50,39 @@ rl_algo:
   discount: 0.99
   gae_lambda: null
   device: ${globals.device}
+  slot_pooler:
+    name: Identity
+    lr: 1e-4
+    wd: 0.
+    kwargs: {}
   policy:
-    slot_extractor:
-      name: null
-    slot_pooler:
-      name: null
     name: 'option_policy'
     lr: 1e-4
+    wd: 0.
     std_lr: ${rl_algo.policy.lr}
     dim_option: ${skill.dim_option}
-    hidden_sizes: ${globals.mlp_arch}
-    layer_normalization: false
-    nonlinearity: tanh
+    distribution_name: TwoHeads
     distribution:
-      name: TwoHeaded
-      starting_logstd: 0.
-      max_logstd: 2.
-      min_logstd: -5
+      hidden_sizes: ${globals.mlp_arch}
+      layer_normalization: false
+      hidden_nonlinearity: tanh
+      init_std: 1.
+      max_std: 9.
+      min_std: 1e-4
       std_parameterization: exp
-      type: TanhNormal
-      output_gain: 1.
+      normal_distribution_cls: TanhNormal
   critics:
-    slot_extractor:
-      name: null
-    slot_pooler:
-      name: null
     lr: 1e-4
+    wd: 0.
     dim_option: ${skill.dim_option}
-    hidden_sizes: ${globals.mlp_arch}
-    nonlinearity: relu
-    layer_normalization: false
+    mlp:
+      hidden_sizes: ${globals.mlp_arch}
+      hidden_nonlinearity: relu
+      layer_normalization: false
   alpha:
-    value: 1e-2
     lr: 1e-4
+    wd: 0.
+    value: 1e-2
 
 replay_buffer:
   gae_lambda: ${rl_algo.gae_lambda}

@@ -15,7 +15,7 @@ trainer_args:
 replay_buffer:
   skill:
     min_transitions: null
-    max_transitions: 19_200
+    max_transitions: 4_800
     batch_size: 256
   common:
     max_transitions: 300000
