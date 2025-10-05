@@ -49,10 +49,10 @@ class SAC(Policy):
     def build_optimizers(self, actor_lr, critic_lr, pooler_lr, log_alpha_lr,
                                actor_wd, critic_wd, pooler_wd, log_alpha_wd):
         self._optimizers = {'actor': AdamW(params = self.actor.parameters(), lr = actor_lr, weight_decay = actor_wd),
-                            'critic': AdamW(params = chain(self.critic1.parameters(), self.critic2.parameters()), lr = critic_lr,
-                                            weight_decay = critic_wd),
-                            'log_alpha': AdamW(params = self.log_alpha.parameters(), lr = log_alpha_lr, 
-                                               weight_decay = log_alpha_wd)}
+                            'critic': AdamW(params = chain(self.critic1.parameters(), self.critic2.parameters()), 
+                                            lr = critic_lr, weight_decay = critic_wd),
+                            'log_alpha': AdamW(params = self.log_alpha.parameters(), 
+                                               lr = log_alpha_lr, weight_decay = log_alpha_wd)}
         if self.is_pooler_trainable:
             self._optimizers['pooler'] = AdamW(params = self.pooler.parameters(), lr = pooler_lr, weight_decay = pooler_wd),
 
@@ -134,7 +134,7 @@ class SAC(Policy):
             alpha = self.log_alpha.param.exp()
         q1_pred = self.critic1(observations, options, actions).flatten()
         q2_pred = self.critic2(observations, options, actions).flatten()
-
+        
         next_action_dists, *_ = self.forward(next_observations, next_options)
         if hasattr(next_action_dists, 'rsample_with_pre_tanh_value'):
             new_next_actions_pre_tanh, new_next_actions = next_action_dists.rsample_with_pre_tanh_value()

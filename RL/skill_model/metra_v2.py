@@ -32,7 +32,7 @@ class METRA(torch.nn.Module):
         self.pooler.to(self.device)
         self.traj_encoder = MultiHeadedMLPModule(n_heads = 1, input_dim = self.pooler.outp_dim, output_dims = option_size,
                                                  **traj_encoder_config.mlp).to(self.device)
-        self.dual_lam = ParameterModule(torch.Tensor([np.log(dual_lam)])).to(self.device)
+        self.log_dual_lam = ParameterModule(torch.Tensor([np.log(dual_lam)])).to(self.device)
         self.dist_predictor_name = dist_predictor_name
 
         if dist_predictor_name == 's2_from_s':
@@ -56,7 +56,7 @@ class METRA(torch.nn.Module):
         
         self._optimizers = {'traj_encoder': AdamW(params = self.traj_encoder.parameters(), lr = traj_lr,
                                                  weight_decay = traj_wd),
-                            'dual_lam': AdamW(params = self.dual_lam.parameters(), lr = dual_lam_lr, 
+                            'dual_lam': AdamW(params = self.log_dual_lam.parameters(), lr = dual_lam_lr, 
                                               weight_decay = dual_lam_wd)}
         if self.dist_predictor_name == 's2_from_s':
             self._optimizers['dist_predictor'] = AdamW(params = self.dist_predictor.parameters(), 
@@ -89,7 +89,7 @@ class METRA(torch.nn.Module):
         cur_obj_repr = self.fetch_single_vector_representation(observations, obj_idxs)
         next_obj_repr = self.fetch_single_vector_representation(next_observations, obj_idxs)
         logs.update(self._optimize_te(cur_obj_repr = cur_obj_repr, next_obj_repr = next_obj_repr, options = options))
-        rew_logs, cur_z, next_z, rewards = self._update_rewards(cur_obj_repr, next_obj_repr, options=options)
+        rew_logs, cur_z, next_z, rewards = self._update_rewards(cur_obj_repr, next_obj_repr, options = options)
         logs.update(rew_logs)
         return logs, rewards
     
@@ -107,10 +107,10 @@ class METRA(torch.nn.Module):
             )
             if self.dist_predictor_name == 's2_from_s':
                 pass
-                #self._gradient_descent(
+                # self._gradient_descent(
                 #    logs['LossDp'],
                 #    optimizer_keys=['dist_predictor'],
-                #)
+                # )
         return {**te_logs, **dual_logs}
     
     def fetch_single_vector_representation(self, observations, obj_idxs):
@@ -149,7 +149,7 @@ class METRA(torch.nn.Module):
                 'LossDp': loss_dp,
             })
         if self.dual_reg:
-            dual_lam = self.dual_lam.param.exp()
+            dual_lam = self.log_dual_lam.param.exp()
             if self.dist_predictor_name == 'l2':
                 cst_dist = torch.square(next_obj_repr - cur_obj_repr).mean(dim=1)
             elif self.dist_predictor_name == 'one':
@@ -187,7 +187,7 @@ class METRA(torch.nn.Module):
             
     def _update_loss_dual_lam(self, cst_penalty):
         logs = {}
-        log_dual_lam = self.dual_lam.param
+        log_dual_lam = self.log_dual_lam.param
         dual_lam = log_dual_lam.exp()
         loss_dual_lam = log_dual_lam * (cst_penalty.detach()).mean()
         logs.update({

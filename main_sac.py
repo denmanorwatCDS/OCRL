@@ -138,18 +138,18 @@ def run():
                                         frame_stack = config.env.frame_stack, 
                                         normalizer_type = config.env.normalizer_type)
     env = make_seeded_env(seed = config.globals.seed)
-
+    
     # TODO change shape
     rl_algo = SAC(name = 'SAC', obs_length = env.observation_space.shape[1], task_length = config.skill.dim_option, 
-                        action_length = env.action_space.shape[0], actor_config = config.rl_algo.policy, 
-                        critic_config = config.rl_algo.critics, pooler_config = config.rl_algo.slot_pooler,
-                        alpha = config.rl_algo.alpha.value, tau = config.rl_algo.tau, scale_reward = config.rl_algo.scale_reward,
-                        env_spec = env, target_coef = config.rl_algo.target_coef, device = config.globals.device,
-                        discount = config.rl_algo.discount,
-                        actor_lr = config.rl_algo.policy.lr, critic_lr = config.rl_algo.critics.lr, 
-                        pooler_lr = config.rl_algo.slot_pooler.lr, log_alpha_lr = config.rl_algo.alpha.lr,
-                        actor_wd = config.rl_algo.policy.wd, critic_wd = config.rl_algo.critics.wd, 
-                        pooler_wd = config.rl_algo.slot_pooler.wd, log_alpha_wd = config.rl_algo.alpha.wd)
+                  action_length = env.action_space.shape[0], actor_config = config.rl_algo.policy, 
+                  critic_config = config.rl_algo.critics, pooler_config = config.rl_algo.slot_pooler,
+                  alpha = config.rl_algo.alpha.value, tau = config.rl_algo.tau, scale_reward = config.rl_algo.scale_reward,
+                  env_spec = env, target_coef = config.rl_algo.target_coef, device = config.globals.device,
+                  discount = config.rl_algo.discount,
+                  actor_lr = config.rl_algo.policy.lr, critic_lr = config.rl_algo.critics.lr, 
+                  pooler_lr = config.rl_algo.slot_pooler.lr, log_alpha_lr = config.rl_algo.alpha.lr,
+                  actor_wd = config.rl_algo.policy.wd, critic_wd = config.rl_algo.critics.wd, 
+                  pooler_wd = config.rl_algo.slot_pooler.wd, log_alpha_wd = config.rl_algo.alpha.wd)
     
     replay_buffer = PathBuffer(capacity_in_transitions = int(config.replay_buffer.common.max_transitions), 
                                batch_size = config.replay_buffer.common.batch_size, pixel_keys = {}, 
@@ -166,7 +166,6 @@ def run():
                   option_size = config.skill.dim_option, discrete = config.skill.discrete, 
                   unit_length = config.skill.unit_length, device = config.globals.device, dual_reg = config.skill.dual_reg,
                   dual_slack = config.skill.dual_slack)
-        
     env.close()
     
     train_cycle(config.trainer_args, agent = rl_algo, skill_model = metra, replay_buffer = replay_buffer,

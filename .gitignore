@@ -4,4 +4,6 @@ videos
 env_xmls/
 logs/
 *.pyc
-__pycache__/
+*.cpython-39
+__pycache__/*
+__pycache__
