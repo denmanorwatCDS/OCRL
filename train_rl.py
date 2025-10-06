@@ -74,11 +74,11 @@ def main(config):
                                      memory_size = 50_000, 
                                      random_dataset = rollout_dataset, dataset_preprocessor = rollout_preprocessor)
 
+    oc_model = getattr(ocrs, config.ocr.name)(config.ocr, obs_size = config.env.obs_size, obs_channels = config.env.obs_channels)
     agent = Policy(observation_size = obs_shape[-1], action_size = agent_action_data, is_action_discrete = is_discrete, 
                    actor_mlp = [64, 64], actor_act = 'Tanh', critic_mlp = [64, 64], critic_act = 'Tanh',
                    pooler_config = config.pooling, 
                    ocr_rep_dim = config.ocr.slotattr.slot_size, num_slots = config.ocr.slotattr.num_slots).to(device)
-    oc_model = getattr(ocrs, config.ocr.name)(config.ocr, obs_size = config.env.obs_size, obs_channels = config.env.obs_channels)
     if config.pretrained_model.use:
         pretrained_path = '/'.join([PATH_TO_TRAIN_RL_DOT_PY, 'models', 
                                     f'{config.env.obs_size}x{config.env.obs_size}', config.pretrained_model.env,

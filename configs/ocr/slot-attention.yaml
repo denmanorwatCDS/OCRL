@@ -24,7 +24,7 @@ slotattr:
   num_iterations: 7
   num_slots: ???
   num_slot_heads: 1
-  slot_size: 64
+  slot_size: 128
   mlp_hidden_size: 192
   pos_channels: 4
   preinit_type: classic

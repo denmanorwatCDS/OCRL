@@ -22,14 +22,16 @@ class Policy(nn.Module):
         self.is_action_discrete = is_action_discrete
         assert isinstance(observation_size, int) and isinstance(action_size, int)
         actor_modules, critic_modules = [], []
-        actor_modules.append(layer_init(nn.Linear(observation_size, actor_mlp[0])))
+        self.pooler = getattr(poolers, pooler_config['name'])(config = pooler_config, 
+                                                              ocr_rep_dim = ocr_rep_dim, num_slots = num_slots)
+        actor_modules.append(layer_init(nn.Linear(ocr_rep_dim, actor_mlp[0])))
         for in_dim, out_dim in zip(actor_mlp[:-1], actor_mlp[1:]):
             actor_modules.append(fetch_activation(actor_act))
             actor_modules.append(layer_init(nn.Linear(in_dim, out_dim)))
         actor_modules.append(fetch_activation(actor_act))
         actor_modules.append(layer_init(nn.Linear(out_dim, action_size), std = 0.01))
         
-        critic_modules.append(layer_init(nn.Linear(observation_size, critic_mlp[0])))
+        critic_modules.append(layer_init(nn.Linear(ocr_rep_dim, critic_mlp[0])))
         for in_dim, out_dim in zip(critic_mlp[:-1], critic_mlp[1:]):
             critic_modules.append(fetch_activation(critic_act))
             critic_modules.append(layer_init(nn.Linear(in_dim, out_dim)))
@@ -41,8 +43,6 @@ class Policy(nn.Module):
         if not is_action_discrete:
             self.logstd = nn.Parameter(torch.zeros(1, np.prod(action_size)))
 
-        self.pooler = getattr(poolers, pooler_config['name'])(config = pooler_config, 
-                                                              ocr_rep_dim = ocr_rep_dim, num_slots = num_slots)
 
     def _convert_slots_to_rep(self, slots):
         return self.pooler(slots)
