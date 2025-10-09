@@ -32,7 +32,7 @@ slotattr:
   num_iterations: 3
   num_slots: ???
   num_slot_heads: 1
-  slot_size: 128
+  slot_size: 192
   mlp_hidden_size: 192
   pos_channels: 4
   preinit_type: classic
@@ -51,7 +51,7 @@ optimizer:
   global_oc_grad_clip_type: 'inf'
   encoder_optimizer:
     lr: 1e-4
-    weight_decay: 0.05
+    weight_decay: 0.0
     lr_scheduler:
       warmup_steps: 30_000
       decay_steps: 250_000
@@ -60,7 +60,7 @@ optimizer:
 
   slot_optimizer:
     lr: 1e-4
-    weight_decay: 0.05
+    weight_decay: 0.0
     lr_scheduler:
       warmup_steps: 30_000
       decay_steps: 250_000
@@ -78,7 +78,7 @@ optimizer:
 
   dvae_optimizer:
     lr: 3e-4
-    weight_decay: 0.05
+    weight_decay: 0.0
     lr_scheduler:
       warmup_steps: 0
       decay_steps: 250_000
