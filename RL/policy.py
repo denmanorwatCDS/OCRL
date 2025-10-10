@@ -24,14 +24,14 @@ class Policy(nn.Module):
         actor_modules, critic_modules = [], []
         self.pooler = getattr(poolers, pooler_config['name'])(config = pooler_config, 
                                                               ocr_rep_dim = ocr_rep_dim, num_slots = num_slots)
-        actor_modules.append(layer_init(nn.Linear(ocr_rep_dim, actor_mlp[0])))
+        actor_modules.append(layer_init(nn.Linear(self.pooler.rep_dim, actor_mlp[0])))
         for in_dim, out_dim in zip(actor_mlp[:-1], actor_mlp[1:]):
             actor_modules.append(fetch_activation(actor_act))
             actor_modules.append(layer_init(nn.Linear(in_dim, out_dim)))
         actor_modules.append(fetch_activation(actor_act))
         actor_modules.append(layer_init(nn.Linear(out_dim, action_size), std = 0.01))
         
-        critic_modules.append(layer_init(nn.Linear(ocr_rep_dim, critic_mlp[0])))
+        critic_modules.append(layer_init(nn.Linear(self.pooler.rep_dim, critic_mlp[0])))
         for in_dim, out_dim in zip(critic_mlp[:-1], critic_mlp[1:]):
             critic_modules.append(fetch_activation(critic_act))
             critic_modules.append(layer_init(nn.Linear(in_dim, out_dim)))
