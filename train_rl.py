@@ -105,6 +105,7 @@ def main(config):
                     logs_after_ppg = logs_before_ppg, imgs_after_ppg = imgs_before_ppg,
                     curves = {})
     for iteration in range(1, int(config.max_steps + 1) // config.sb3.n_steps):
+        oc_model.inference_mode()
         for step in range(0, config.sb3.n_steps, config.num_envs):
             global_step += config.num_envs
 
@@ -126,7 +127,8 @@ def main(config):
             next_value = agent.get_value(slots)
         rollout_buffer.finalize_tensors_calculate_and_store_GAE(last_done = next_done, 
                                                                 last_value = next_value)
-        
+        if config.sb3.train_feature_extractor:
+            oc_model.training_mode()
         for batch, start_obs, future_obs in rollout_buffer.convert_transitions_to_rollout():
             slots = oc_model.get_slots(batch['obs'], training = False)
             if not config.sb3.train_feature_extractor:

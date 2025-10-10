@@ -4,6 +4,7 @@ from torch import nn
 class Transformer(nn.Module):
     def __init__(self, in_dim, d_model, nhead, num_layers, pos=None, norm_first=False):
         super(Transformer, self).__init__()
+        self._linear = nn.Linear(in_dim, d_model)
         self._cls_token = ClsToken(d_model)
         self._pos = pos
         encoder_layer = nn.TransformerEncoderLayer(
@@ -13,6 +14,9 @@ class Transformer(nn.Module):
 
     def forward(self, state):
         # with cls token [batch_size, num_slots+1, d_model]
+        B, S, D = state.shape
+        state = self._linear(state.reshape(-1, D))
+        state = state.reshape(B, S, -1)
         state = torch.cat(
             [self._cls_token().repeat(state.shape[0], 1, 1), state], dim=1
         )
