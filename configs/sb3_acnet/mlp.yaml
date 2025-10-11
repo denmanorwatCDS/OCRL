@@ -7,12 +7,12 @@ name: 'MLP'
 ortho_init: False
 
 # mlp stractor
-shared_net:
-    dims: [64,64]
-    acts: ['relu','relu']
+backbone_net:
+    dims: [64, 64]
+    act: 'ReLU'
 policy_net:
     dims: [64]
-    acts: ['tanh']
+    act: 'Tanh'
 value_net:
     dims: [64]
-    acts: ['tanh']
+    act: 'Tanh'

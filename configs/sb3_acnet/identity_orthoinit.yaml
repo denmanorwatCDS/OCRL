@@ -7,7 +7,7 @@ name: 'IdentityOrthoInit'
 ortho_init: True
 
 # mlp stractor
-shared_net:
+backbone_net:
     dims: []
     acts: []
 policy_net:

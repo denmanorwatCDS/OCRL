@@ -7,7 +7,7 @@ name: 'MLPOrthoInit'
 ortho_init: True
 
 # mlp stractor
-shared_net:
+backbone_net:
     dims: [64,64]
     acts: ['relu','relu']
 policy_net:

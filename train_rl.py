@@ -76,7 +76,9 @@ def main(config):
 
     oc_model = getattr(ocrs, config.ocr.name)(config.ocr, obs_size = config.env.obs_size, obs_channels = config.env.obs_channels)
     agent = Policy(observation_size = obs_shape[-1], action_size = agent_action_data, is_action_discrete = is_discrete, 
-                   actor_mlp = [64, 64], actor_act = 'Tanh', critic_mlp = [64, 64], critic_act = 'Tanh',
+                   backbone_mlp = config.sb3_acnet.backbone_net.dims, backbone_act = config.sb3_acnet.backbone_net.act, 
+                   actor_mlp = config.sb3_acnet.policy_net.dims, actor_act = config.sb3_acnet.policy_net.act, 
+                   critic_mlp = config.sb3_acnet.value_net.dims, critic_act = config.sb3_acnet.value_net.act,
                    pooler_config = config.pooling, 
                    ocr_rep_dim = config.ocr.slotattr.slot_size, num_slots = config.ocr.slotattr.num_slots).to(device)
     if config.pretrained_model.use:
@@ -105,7 +107,7 @@ def main(config):
                     logs_after_ppg = logs_before_ppg, imgs_after_ppg = imgs_before_ppg,
                     curves = {})
     for iteration in range(1, int(config.max_steps + 1) // config.sb3.n_steps):
-        oc_model.inference_mode()
+        oc_model.inference_mode(), agent.inference_mode()
         for step in range(0, config.sb3.n_steps, config.num_envs):
             global_step += config.num_envs
 
@@ -128,7 +130,7 @@ def main(config):
         rollout_buffer.finalize_tensors_calculate_and_store_GAE(last_done = next_done, 
                                                                 last_value = next_value)
         if config.sb3.train_feature_extractor:
-            oc_model.training_mode()
+            oc_model.training_mode(), agent.training_mode()
         for batch, start_obs, future_obs in rollout_buffer.convert_transitions_to_rollout():
             slots = oc_model.get_slots(batch['obs'], training = False)
             if not config.sb3.train_feature_extractor:

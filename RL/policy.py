@@ -15,43 +15,46 @@ def fetch_activation(act_name):
 class Policy(nn.Module):
     def __init__(self, 
                  observation_size, action_size, is_action_discrete,
-                 actor_mlp, actor_act, critic_mlp, critic_act,
+                 backbone_mlp, backbone_act, actor_mlp, actor_act, critic_mlp, critic_act,
                  pooler_config, ocr_rep_dim, num_slots):
         super().__init__()
 
         self.is_action_discrete = is_action_discrete
         assert isinstance(observation_size, int) and isinstance(action_size, int)
-        actor_modules, critic_modules = [], []
         self.pooler = getattr(poolers, pooler_config['name'])(config = pooler_config, 
                                                               ocr_rep_dim = ocr_rep_dim, num_slots = num_slots)
-        actor_modules.append(layer_init(nn.Linear(self.pooler.rep_dim, actor_mlp[0])))
-        for in_dim, out_dim in zip(actor_mlp[:-1], actor_mlp[1:]):
-            actor_modules.append(fetch_activation(actor_act))
-            actor_modules.append(layer_init(nn.Linear(in_dim, out_dim)))
-        actor_modules.append(fetch_activation(actor_act))
-        actor_modules.append(layer_init(nn.Linear(out_dim, action_size), std = 0.01))
         
-        critic_modules.append(layer_init(nn.Linear(self.pooler.rep_dim, critic_mlp[0])))
-        for in_dim, out_dim in zip(critic_mlp[:-1], critic_mlp[1:]):
-            critic_modules.append(fetch_activation(critic_act))
-            critic_modules.append(layer_init(nn.Linear(in_dim, out_dim)))
-        critic_modules.append(layer_init(nn.Linear(out_dim, 1), std = 1.))
-
-        self.actor_net = nn.Sequential(*actor_modules)
-        self.critic_net = nn.Sequential(*critic_modules)
+        self.backbone_net = self.fetch_module_by_kwargs(in_dim = self.pooler.rep_dim, mlp_architecture = backbone_mlp, 
+                                                        activation = backbone_act)
+        self.actor_net = self.fetch_module_by_kwargs(in_dim = backbone_mlp[-1], mlp_architecture = actor_mlp, 
+                                                     activation = actor_act, output_dim = action_size, output_std = 0.01)
+        self.critic_net = self.fetch_module_by_kwargs(in_dim = backbone_mlp[-1], mlp_architecture = critic_mlp, 
+                                                      activation = critic_act, output_dim = 1, output_std = 1.)
 
         if not is_action_discrete:
             self.logstd = nn.Parameter(torch.zeros(1, np.prod(action_size)))
 
+    def fetch_module_by_kwargs(self, in_dim, mlp_architecture, activation, output_dim = None, output_std = None):
+        modules = []
+        modules.append(layer_init(nn.Linear(in_dim, mlp_architecture[0])))
+        for in_dim, out_dim in zip(mlp_architecture[:-1], mlp_architecture[1:]):
+            modules.append(fetch_activation(activation))
+            modules.append(layer_init(nn.Linear(in_dim, out_dim)))
+        modules.append(fetch_activation(activation))
+        if output_dim is not None:
+            modules.append(layer_init(nn.Linear(mlp_architecture[-1], output_dim), std = output_std))
+        return nn.Sequential(*modules)
 
     def _convert_slots_to_rep(self, slots):
         return self.pooler(slots)
 
     def get_value(self, slots):
-        return self.critic_net(self._convert_slots_to_rep(slots)).squeeze(axis = -2)
+        feat = self.backbone_net(self._convert_slots_to_rep(slots))
+        return self.critic_net(feat).squeeze(axis = -2)
     
     def get_action_distribution(self, slots):
-        actor_out = self.actor_net(self._convert_slots_to_rep(slots))
+        feat = self.backbone_net(self._convert_slots_to_rep(slots))
+        actor_out = self.actor_net(feat)
         actor_out = torch.unsqueeze(actor_out, dim = 1)
         if self.is_action_discrete:
             return Categorical(logits = actor_out)
