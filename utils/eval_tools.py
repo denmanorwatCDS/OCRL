@@ -80,7 +80,6 @@ def calculate_ari(true_masks, pred_masks, foreground=False):
 
 def evaluate_ocr_model(model, val_dataloader):
     # OCR logging
-    model.inference_mode()
     for j, batch in enumerate(val_dataloader):
         if j > 50:
             break
@@ -149,7 +148,6 @@ def evaluate_ocr_model(model, val_dataloader):
                                                            attn_images[name].shape[1] * attn_images[name].shape[2],
                                                            attn_images[name].shape[3]))
         imgs[name] = attn_images[name]
-    model.training_mode()
     return logs, imgs
 
 def calculate_explained_variance(y_true, y_pred):

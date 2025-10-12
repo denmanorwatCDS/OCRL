@@ -3,6 +3,13 @@ import numpy as np
 from torch import nn
 from RL import poolers
 from torch.distributions import Categorical, Normal
+from functools import partial
+
+def ortho_linear_init(layer, std = np.sqrt(2), bias_const = 0.):
+    if isinstance(layer, (nn.Linear, nn.Conv2d)):
+        nn.init.orthogonal_(layer.weight, gain=std)
+        if layer.bias is not None:
+            torch.nn.init.constant_(layer.bias, bias_const)
 
 def layer_init(layer, std = np.sqrt(2), bias_const = 0.0):
     torch.nn.init.orthogonal_(layer.weight, std)
@@ -24,6 +31,7 @@ class Policy(nn.Module):
         self.pooler = getattr(poolers, pooler_config['name'])(config = pooler_config, 
                                                               ocr_rep_dim = ocr_rep_dim, num_slots = num_slots)
         
+        self.pooler.apply(partial(ortho_linear_init, std = np.sqrt(2)))
         self.backbone_net = self.fetch_module_by_kwargs(in_dim = self.pooler.rep_dim, mlp_architecture = backbone_mlp, 
                                                         activation = backbone_act)
         self.actor_net = self.fetch_module_by_kwargs(in_dim = backbone_mlp[-1], mlp_architecture = actor_mlp, 
@@ -83,10 +91,10 @@ class Policy(nn.Module):
     
     def inference_mode(self):
         self.eval()
-        for param in self.parameters():
+        for name, param in self.named_parameters():
             param.requires_grad_ = False
 
     def training_mode(self):
         self.train()
-        for param in self.parameters():
+        for name, param in self.named_parameters():
             param.requires_grad_ = True
