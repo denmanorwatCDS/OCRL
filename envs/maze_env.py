@@ -72,15 +72,7 @@ class MazeEnv(gym.Env):
 
     def calc_eval_metrics(self, trajectories, is_option_trajectories):
         return {}
-
-    @property
-    def is_pixel(self):
-        return False
     
     @property
     def n_obj(self):
         return 1
-    
-    @property
-    def decoupled(self):
-        return False

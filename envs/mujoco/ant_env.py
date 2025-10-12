@@ -29,6 +29,7 @@ def q_mult(a, b):  # multiply two quaternion
 class AntEnv(MujocoTrait, mujoco_env.MujocoEnv, utils.EzPickle):
 
     def __init__(self,
+                 seed,
                  task="motion",
                  goal=None,
                  expose_obs_idxs=None,
@@ -42,6 +43,7 @@ class AntEnv(MujocoTrait, mujoco_env.MujocoEnv, utils.EzPickle):
                  done_allowing_step_unit=None,
                  original_env=False,
                  render_hw=100,
+                 render_info=False,
                  ):
         utils.EzPickle.__init__(**locals())
 
@@ -58,10 +60,13 @@ class AntEnv(MujocoTrait, mujoco_env.MujocoEnv, utils.EzPickle):
         self._body_com_indices = {}
         self._body_comvel_indices = {}
         self.fixed_initial_state = fixed_initial_state
+        self.seed_ = seed
+        self.np_rng = np.random.default_rng(seed)
 
         self._done_allowing_step_unit = done_allowing_step_unit
         self._original_env = original_env
         self.render_hw = render_hw
+        self.render_info = render_info
 
         # Settings from
         # https://github.com/openai/gym/blob/master/gym/envs/__init__.py
@@ -76,7 +81,7 @@ class AntEnv(MujocoTrait, mujoco_env.MujocoEnv, utils.EzPickle):
     def _get_done(self):
         return False
 
-    def step(self, a, render=False):
+    def step(self, a):
         if hasattr(self, '_step_count'):
             self._step_count += 1
 
@@ -127,21 +132,16 @@ class AntEnv(MujocoTrait, mujoco_env.MujocoEnv, utils.EzPickle):
             # reward_sideward=sideward_reward,
             # reward_ctrl=-ctrl_cost,
             # reward_survive=survive_reward,
-            coordinates=np.array([xposbefore, yposbefore]),
-            next_coordinates=np.array([xposafter, yposafter]),
+            coordinates=np.array([[xposbefore, yposbefore]]),
+            next_coordinates=np.array([[xposafter, yposafter]]),
             ori_obs=obsbefore,
             next_ori_obs=obsafter,
         )
-
-        if render:
-            info['render'] = self.render(mode='rgb_array').transpose(2, 0, 1)
+        if self.render_info:
+            info['render'] = self.render(mode='rgb_array', width = self.render_hw, 
+                                         height = self.render_hw).transpose(2, 0, 1)
 
         return ob, reward, done, info
-    
-    def render_step(self, action, resolution = (140, 140)):
-        obs, reward, done, info = self.step(action)
-        pic = self.render(width = resolution[0], height = resolution[1], mode = 'rgb_array')
-        return obs, reward, done, info, pic
 
     def _get_obs(self):
         if self._original_env:
@@ -198,9 +198,9 @@ class AntEnv(MujocoTrait, mujoco_env.MujocoEnv, utils.EzPickle):
             qpos = self.init_qpos
             qvel = self.init_qvel
         else:
-            qpos = self.init_qpos + np.random.uniform(
+            qpos = self.init_qpos + self.np_rng.uniform(
                 size=self.sim.model.nq, low=-.1, high=.1)
-            qvel = self.init_qvel + np.random.randn(self.sim.model.nv) * .1
+            qvel = self.init_qvel + self.np_rng.standard_normal(self.sim.model.nv) * .1
 
         if not self._original_env:
             qpos[15:] = self.init_qpos[15:]
@@ -212,19 +212,11 @@ class AntEnv(MujocoTrait, mujoco_env.MujocoEnv, utils.EzPickle):
     def viewer_setup(self):
         # self.viewer.cam.distance = self.model.stat.extent * 2.5
         pass
-
-    @property
-    def is_image(self):
-        return False
     
     @property
     def n_obj(self):
         # Only ant is an object
         return 1
-    
-    @property
-    def decoupled(self):
-        return False
     
     @property
     def body_com_indices(self):
@@ -234,11 +226,5 @@ class AntEnv(MujocoTrait, mujoco_env.MujocoEnv, utils.EzPickle):
     def body_comvel_indices(self):
         return self._body_comvel_indices
     
-    @property
-    def is_pixel(self):
-        return False
-
-    def calc_eval_metrics(self, trajectories, is_option_trajectories):
-        coord_dims = [0, 1]
-        eval_metrics = super().calc_eval_metrics(trajectories, is_option_trajectories, coord_dims)
-        return eval_metrics
+    def env_discretizer(self):
+        return np.floor

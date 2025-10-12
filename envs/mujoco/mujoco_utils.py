@@ -43,65 +43,14 @@ class MujocoTrait:
             height = self.render_hw
         return super().render(mode, width, height, camera_id, camera_name)
 
-    def plot_trajectory(self, trajectory, color, ax):
-        ax.plot(trajectory[:, 0], trajectory[:, 1], color=color, linewidth=0.7)
-
-    def plot_trajectories(self, trajectories, colors, plot_axis, ax):
-        square_axis_limit = 0.0
-        for trajectory, color in zip(trajectories, colors):
-            trajectory = np.array(trajectory)
-            self.plot_trajectory(trajectory, color, ax)
-
-            square_axis_limit = max(square_axis_limit, np.max(np.abs(trajectory[:, :2])))
-        square_axis_limit = square_axis_limit * 1.2
-
-        if plot_axis == 'free':
-            return
-
-        if plot_axis is None:
-            plot_axis = [-square_axis_limit, square_axis_limit, -square_axis_limit, square_axis_limit]
-
-        if plot_axis is not None:
-            ax.axis(plot_axis)
-            ax.set_aspect('equal')
-        else:
-            ax.axis('scaled')
-
-    def render_trajectories(self, trajectories, colors, plot_axis, ax):
-        coordinates_trajectories = self._get_coordinates_trajectories(trajectories)
-        for key in coordinates_trajectories.keys():
-            self.plot_trajectories(coordinates_trajectories[key], colors, plot_axis, ax[key])
-
-    def _get_coordinates_trajectories(self, trajectories):
-        coordinates_trajectories = {0: []}
-        for trajectory in trajectories:
-            if trajectory['env_infos']['coordinates'].dtype == object:
-                coordinates_trajectories[0].append(np.concatenate([
-                    np.concatenate(trajectory['env_infos']['coordinates'], axis=0),
-                    [trajectory['env_infos']['next_coordinates'][-1][-1]],
-                ]))
-            elif trajectory['env_infos']['coordinates'].ndim == 2:
-                coordinates_trajectories[0].append(np.concatenate([
-                    trajectory['env_infos']['coordinates'],
-                    [trajectory['env_infos']['next_coordinates'][-1]]
-                ]))
-            elif trajectory['env_infos']['coordinates'].ndim > 2:
-                coordinates_trajectories[0].append(np.concatenate([
-                    trajectory['env_infos']['coordinates'].reshape(-1, 2),
-                    trajectory['env_infos']['next_coordinates'].reshape(-1, 2)[-1:]
-                ]))
-            else:
-                assert False
-        return coordinates_trajectories
-
-    def calc_eval_metrics(self, trajectories, is_option_trajectories, coord_dims=None):
+    def calc_eval_metrics(self, trajectories, coord_dims=None):
         eval_metrics = {}
 
         if coord_dims is not None:
             coords = []
-            for traj in trajectories:
-                traj1 = traj['env_infos']['coordinates'][:, coord_dims]
-                traj2 = traj['env_infos']['next_coordinates'][-1:, coord_dims]
+            for trajectory_coord, trajectory_next_coord in zip(trajectories['coordinates'], trajectories['next_coordinates']):
+                traj1 = trajectory_coord[:, coord_dims]
+                traj2 = trajectory_next_coord[-1:, coord_dims]
                 coords.append(traj1)
                 coords.append(traj2)
             coords = np.concatenate(coords, axis=0)

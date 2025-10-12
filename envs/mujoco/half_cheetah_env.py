@@ -136,7 +136,3 @@ class HalfCheetahEnv(MujocoTrait, mujoco_env.MujocoEnv, utils.EzPickle):
         coord_dims = [0]
         eval_metrics = super().calc_eval_metrics(trajectories, is_option_trajectories, coord_dims)
         return eval_metrics
-
-    @property
-    def is_image(self):
-        return False

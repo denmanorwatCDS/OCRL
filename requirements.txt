@@ -6,7 +6,7 @@ Cython==0.29.35
 dm-control==1.0.5
 dm-env==1.5
 dm-tree==0.1.7
-gym==0.17.2
+gym==0.21.0
 imageio==2.31.0
 imageio-ffmpeg==0.4.8
 importlib-resources==5.12.0
@@ -23,6 +23,7 @@ PyOpenGL==3.1.4
 scipy==1.10.1
 scikit-image==0.19.3
 scikit-learn==1.0.2
+spriteworld
 swig==3.0.12
 torch==2.0.1
 tyro==0.8.5

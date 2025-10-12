@@ -412,10 +412,6 @@ class MultipleFetchPickAndPlaceEnv(MujocoTrait, utils.EzPickle):
         return self
     
     @property
-    def is_image(self):
-        return (self.obs_type == 'pixels')
-    
-    @property
     def n_types(self):
         # Include gripper type as well
         return len(self.object_names) + 1
@@ -424,14 +420,6 @@ class MultipleFetchPickAndPlaceEnv(MujocoTrait, utils.EzPickle):
     def n_obj(self):
         # Include gripper as well
         return self.object_qty + 1
-    
-    @property
-    def decoupled(self):
-        return 'decoupled' in self.obs_type
-    
-    @property
-    def is_pixel(self):
-        return self.obs_type == 'pixels'
 
     def _remove_pressure(self, pos_ctrl):
         # Adapted from: https://gist.github.com/machinaut/209c44e8c55245c0d0f0094693053158

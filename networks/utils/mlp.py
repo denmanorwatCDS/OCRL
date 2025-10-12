@@ -4,6 +4,7 @@ from torch import nn
 from torch.nn import functional as F
 from utils.layer_preprocessing.spectral_norm import spectral_norm
 from utils.config_to_module import fetch_activation, fetch_init
+from omegaconf.dictconfig import DictConfig
 
 def process_init_dict(init_dict):
     name, gain = init_dict['name'], init_dict.pop('gain', None)
@@ -11,6 +12,15 @@ def process_init_dict(init_dict):
 
 def convert_maybe_string_parameters_to_params(hidden_nonlinearity, hidden_w_init, hidden_b_init,
                                               output_nonlinearities, output_w_inits, output_b_inits):
+    if isinstance(hidden_w_init, DictConfig):
+        hidden_w_init = dict(hidden_w_init)
+    if isinstance(hidden_b_init, DictConfig):
+        hidden_b_init = dict(hidden_b_init)
+    if isinstance(output_w_inits, DictConfig):
+        output_w_inits = dict(output_w_inits)
+    if isinstance(output_b_inits, DictConfig):
+        output_b_inits = dict(output_b_inits)
+
     if isinstance(hidden_nonlinearity, str):
         hidden_nonlinearity = fetch_activation(hidden_nonlinearity)
     if isinstance(hidden_w_init, dict):
@@ -27,16 +37,20 @@ def convert_maybe_string_parameters_to_params(hidden_nonlinearity, hidden_w_init
     
     if isinstance(output_w_inits, list):
         for i, output_w_init in enumerate(output_w_inits):
+            if isinstance(output_w_init, DictConfig):
+                output_w_init = dict(output_w_init)
             if isinstance(output_w_init, str):
                 output_w_inits[i] = process_init_dict(output_w_init)
-    elif isinstance(output_w_inits, str):
+    elif isinstance(output_w_inits, dict):
         output_w_inits = process_init_dict(output_w_inits)
         
     if isinstance(output_b_inits, list):
         for i, output_b_init in enumerate(output_b_inits):
+            if isinstance(output_b_init, DictConfig):
+                output_b_init = dict(output_b_init)
             if isinstance(output_b_init, str):
                 output_b_inits[i] = process_init_dict(output_b_init)
-    elif isinstance(output_b_inits, str):
+    elif isinstance(output_b_inits, dict):
         output_b_inits = process_init_dict(output_b_inits)
     
     return hidden_nonlinearity, hidden_w_init, hidden_b_init, output_nonlinearities, output_w_inits, output_b_inits

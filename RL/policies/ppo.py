@@ -1,5 +1,6 @@
 import torch
-from policy_v2 import Policy
+import numpy as np
+from RL.policies.policy_v2 import Policy
 
 from torch.optim import AdamW
 from torch.nn.utils import clip_grad_norm_
@@ -16,40 +17,37 @@ class PPO(Policy):
                  force_use_mode_actions=False,
                  *,
                  clip_coef,
-                 clip_vloss,
                  ent_coef,
                  vf_coef,
                  normalize_advantage,
                  max_grad_norm,
                  target_kl,
-                 optimizers,
                  device
                  ):
         super(Policy, self).__init__()
-        self.pooler = get_pooler_network(name = pooler_config.name, obs_length = obs_length, 
-                                         pooler_kwargs = pooler_config.kwargs)
+        self.pooler, self.is_pooler_trainable = get_pooler_network(name = pooler_config.name, obs_length = obs_length, 
+                                         pooler_config = pooler_config.kwargs)
         super().__init__(name = name, obs_length = self.pooler.outp_dim, task_length = task_length, 
                          action_length = action_length, account_for_action = False, actor_config = actor_config,
                          critic_config = critic_config, clip_action = clip_action,
-                         force_use_mode_actions = force_use_mode_actions)
+                         force_use_mode_actions = force_use_mode_actions, device = device)
         self.build_optimizers(actor_lr, critic_lr, pooler_lr, actor_wd, critic_wd, pooler_wd)
         self.clip_coef = clip_coef
         self.rollback_alpha = -0.3
-        self.clip_vloss = clip_vloss
         self.ent_coef = ent_coef
         self.vf_coef = vf_coef
         self.normalize_advantage = normalize_advantage
         self.max_grad_norm = max_grad_norm
         self.target_kl = target_kl
-        self._optimizers = optimizers
         self.device = device
         self.mean_clipfracs = []
 
     def build_optimizers(self, actor_lr, critic_lr, pooler_lr,
                                actor_wd, critic_wd, pooler_wd,):
-        self.optimizers = {'actor': AdamW(params = self.actor.parameters(), lr = actor_lr, weight_decay = actor_wd),
-                           'critic': AdamW(params = self.critic1.parameters(), lr = critic_lr, weight_decay = critic_wd),
-                           'pooler': AdamW(params = self.pooler.parameters(), lr = pooler_lr, weight_decay = pooler_wd)}
+        self._optimizers = {'actor': AdamW(params = self.actor.parameters(), lr = actor_lr, weight_decay = actor_wd),
+                           'critic': AdamW(params = self.critic1.parameters(), lr = critic_lr, weight_decay = critic_wd)}
+        if self.is_pooler_trainable:
+            self._optimizers['pooler'] = AdamW(params = self.pooler.parameters(), lr = pooler_lr, weight_decay = pooler_wd)
 
     @property
     def policy(self):
@@ -67,15 +65,15 @@ class PPO(Policy):
     def train(self):
         self.actor.train(), self.critic1.train()
 
-    def optimize_op(self, observations, obj_idxs, options, pre_tanh_actions, old_logprobs, advantages, returns):
+    def optimize_op(self, observations, obj_idxs, options, actions, pre_tanh_actions, old_logprobs, advantages, returns):
         logs = {}
         feat_vector = self.pooler(observations, obj_idxs)
-        act_loss, act_logs = self.update_loss_act(feat_vector, options, pre_tanh_actions, old_logprobs, advantages)
+        act_loss, act_logs = self.update_loss_act(feat_vector, options, actions, pre_tanh_actions, old_logprobs, advantages)
         if act_logs is None:
             return logs
         v_loss, v_logs = self.update_loss_vf(feat_vector, options, returns)
         logs.update({**act_logs, **v_logs})
-        self._gradient_descent(act_loss + v_loss, ['actor', 'critic', 'pooler'])
+        self._gradient_descent(act_loss + v_loss, ['actor', 'critic'] + (['pooler'] if self.is_pooler_trainable else []))
         return logs
 
     def _gradient_descent(self, loss, optimizer_keys):
@@ -86,8 +84,8 @@ class PPO(Policy):
         for key in optimizer_keys:
             self._optimizers[key].step()
 
-    def update_loss_act(self, feat_vector, options, pre_tanh_actions, old_logprobs, advantages):
-        new_logprobs, entropy, info = self.get_logprob_and_entropy(feat_vector, options, pre_tanh_actions)
+    def update_loss_act(self, feat_vector, options, actions, pre_tanh_actions, old_logprobs, advantages):
+        new_logprobs, entropy, info = self.get_logprob_and_entropy(feat_vector, options, actions, pre_tanh_actions)
         log_ratio = new_logprobs - old_logprobs
         ratio = log_ratio.exp()
 
@@ -132,3 +130,13 @@ class PPO(Policy):
         return v_loss, {'value_loss': v_loss/(0.5 * self.vf_coef), 
                 'return_mean': returns.mean(),
                 'returns_std': returns.std()}
+    
+    def get_critic_value(self, observations, options, obj_idxs):
+        traj_qty, traj_length = observations.shape[:2]
+        observations = torch.from_numpy(observations.reshape((-1,) + observations.shape[2:])).to(self.device)
+        obj_idxs = torch.from_numpy(obj_idxs.reshape(-1)).to(self.device)
+        options = torch.from_numpy(options.reshape((-1,) + options.shape[2:])).to(self.device)
+        with torch.no_grad():
+            feat_vector = self.pooler(observations, obj_idxs)
+            values = self.critic1(feat_vector, options)
+            return values.reshape((traj_qty, traj_length) + values.shape[2:]).cpu().numpy().astype(np.float32)

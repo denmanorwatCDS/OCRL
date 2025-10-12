@@ -125,21 +125,9 @@ class DMCGymWrapper(core.Env):
         return 0, self._frame_skip
     
     @property
-    def is_image(self):
-        return True
-    
-    @property
     def n_obj(self):
         # Only ant is an object
         return 1
-    
-    @property
-    def decoupled(self):
-        return False
-    
-    @property
-    def is_pixel(self):
-        return True
 
     def seed(self, seed):
         self._true_action_space.seed(seed)

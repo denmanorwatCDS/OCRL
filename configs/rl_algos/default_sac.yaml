@@ -41,7 +41,6 @@ skill:
       hidden_nonlinearity: relu
       layer_normalization: false
 
-
 rl_algo:
   name: 'SAC'
   tau: 5e-3
@@ -74,7 +73,6 @@ rl_algo:
   critics:
     lr: 1e-4
     wd: 0.
-    dim_option: ${skill.dim_option}
     mlp:
       hidden_sizes: ${globals.mlp_arch}
       hidden_nonlinearity: relu
@@ -97,7 +95,6 @@ replay_buffer:
 
 trainer_args:
   n_parallel: 4
-  on_policy_batch: null
   traj_batch_size: 8
   skills_per_trajectory: 1
   n_epochs: 100_000

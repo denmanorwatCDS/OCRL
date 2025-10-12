@@ -54,7 +54,7 @@ class SAC(Policy):
                             'log_alpha': AdamW(params = self.log_alpha.parameters(), 
                                                lr = log_alpha_lr, weight_decay = log_alpha_wd)}
         if self.is_pooler_trainable:
-            self._optimizers['pooler'] = AdamW(params = self.pooler.parameters(), lr = pooler_lr, weight_decay = pooler_wd),
+            self._optimizers['pooler'] = AdamW(params = self.pooler.parameters(), lr = pooler_lr, weight_decay = pooler_wd)
 
     @property
     def policy(self):
@@ -72,7 +72,7 @@ class SAC(Policy):
     def train(self):
         self.actor.train(), self.critic1.train(), self.critic2.train(), self.target_critic1.train(), self.target_critic2.train()
 
-    def optimize_op(self, observations, next_observations, obj_idxs, options, next_options, actions, dones, rewards):
+    def optimize_op(self, observations, next_observations, obj_idxs, options, actions, dones, rewards):
         logs = {}
         cur_feat_vector = self.pooler(observations, obj_idxs)
         next_feat_vector = self.pooler(next_observations, obj_idxs)
@@ -81,20 +81,20 @@ class SAC(Policy):
             options = options,
             actions = actions,
             next_observations = next_feat_vector,
-            next_options = next_options,
             dones = dones,
             rewards = rewards * self._reward_scale_factor
         )
         self._gradient_descent(
             loss_qf,
-            optimizer_keys=['critic'] + ['pooler'] if self.is_pooler_trainable else [],
+            optimizer_keys=['critic'] + (['pooler'] if self.is_pooler_trainable else []),
+            retain_graph=(True if self.is_pooler_trainable else False)
         )
         
         new_action_log_probs, sacp_loss, sacp_logs = self._update_loss_sacp(observations = cur_feat_vector,
                                                                             options = options)
         self._gradient_descent(
             sacp_loss,
-            optimizer_keys=['actor'] + ['pooler'] if self.is_pooler_trainable else [],
+            optimizer_keys=['actor'] + (['pooler'] if self.is_pooler_trainable else []),
         )
 
         loss_alpha, alpha_logs = self._update_loss_alpha(new_action_log_probs)
@@ -106,10 +106,10 @@ class SAC(Policy):
         self.update_targets()
         return logs
 
-    def _gradient_descent(self, loss, optimizer_keys):
+    def _gradient_descent(self, loss, optimizer_keys, retain_graph = False):
         for key in optimizer_keys:
             self._optimizers[key].zero_grad()
-        loss.backward()
+        loss.backward(retain_graph = retain_graph)
         for key in optimizer_keys:
             self._optimizers[key].step()
 
@@ -126,7 +126,6 @@ class SAC(Policy):
         options,
         actions,
         next_observations,
-        next_options,
         dones,
         rewards,
     ):
@@ -135,7 +134,7 @@ class SAC(Policy):
         q1_pred = self.critic1(observations, options, actions).flatten()
         q2_pred = self.critic2(observations, options, actions).flatten()
         
-        next_action_dists, *_ = self.forward(next_observations, next_options)
+        next_action_dists, *_ = self.forward(next_observations, options)
         if hasattr(next_action_dists, 'rsample_with_pre_tanh_value'):
             new_next_actions_pre_tanh, new_next_actions = next_action_dists.rsample_with_pre_tanh_value()
             new_next_action_log_probs = next_action_dists.log_prob(new_next_actions, pre_tanh_value=new_next_actions_pre_tanh)
@@ -145,8 +144,8 @@ class SAC(Policy):
             new_next_action_log_probs = next_action_dists.log_prob(new_next_actions)
 
         target_q_values = torch.min(
-            self.target_critic1(next_observations, next_options, new_next_actions).flatten(),
-            self.target_critic2(next_observations, next_options, new_next_actions).flatten(),
+            self.target_critic1(next_observations, options, new_next_actions).flatten(),
+            self.target_critic2(next_observations, options, new_next_actions).flatten(),
         )
         target_q_values = target_q_values - alpha * new_next_action_log_probs
         target_q_values = target_q_values * self.discount

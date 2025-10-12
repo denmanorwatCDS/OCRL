@@ -1,11 +1,13 @@
 import copy
 import torch
 import numpy as np
+from matplotlib import cm
 from networks.poolers.poolers import get_pooler_network
 from networks.distributions.distributions import get_distribution_network
 from networks.utils.parameter import ParameterModule
 from networks.utils.mlp import MultiHeadedMLPModule
 from torch.optim import AdamW
+from eval_utils.eval_utils import get_option_colors
 
 class METRA(torch.nn.Module):
     def __init__(
@@ -27,6 +29,7 @@ class METRA(torch.nn.Module):
     ):
         super().__init__()
         self.device = device
+        self.preset_options = None
         self.pooler, self.is_pooler_trainable = get_pooler_network(name = pooler_config.name, obs_length = obs_length, 
                                                               pooler_config = pooler_config.kwargs)
         self.pooler.to(self.device)
@@ -65,7 +68,7 @@ class METRA(torch.nn.Module):
         if self.is_pooler_trainable:
             self._optimizers['pooler'] = AdamW(params = self.pooler.parameters(), lr = pooler_lr, weight_decay = pooler_wd)
 
-    def _get_train_trajectories_kwargs(self, batch_size, traj_len, skills_per_traj, n_objects):
+    def sample_options_and_obj_idxs(self, batch_size, traj_len, skills_per_traj, n_objects):
         assert traj_len % skills_per_traj == 0, 'Maximal length of trajectory must be divisible by skills per trajectory'
         if self.discrete:
             options = np.eye(self.option_size)[np.random.randint(0, self.option_size, size = (batch_size, skills_per_traj))]
@@ -77,12 +80,7 @@ class METRA(torch.nn.Module):
         obj_idxs = np.random.randint(low = 0, high = n_objects, size = (batch_size, 1))
         obj_idxs = np.repeat(obj_idxs, traj_len, axis=1)
 
-        extras = []
-        for i in range(batch_size):
-            extras.append([])
-            for traj_idx in range(traj_len):
-                extras[-1].append({'options': options[i, traj_idx], 'obj_idxs': obj_idxs[i, traj_idx]})
-        return extras
+        return options, obj_idxs
     
     def train_components(self, observations, next_observations, options, obj_idxs):
         logs = {}
@@ -97,7 +95,7 @@ class METRA(torch.nn.Module):
         te_logs, loss_te, cst_penalty = self._update_loss_te(cur_obj_repr, next_obj_repr, options)
         self._gradient_descent(
             loss_te,
-            optimizer_keys=['traj_encoder'] + ['pooler'] if self.is_pooler_trainable else [],
+            optimizer_keys=['traj_encoder'] + (['pooler'] if self.is_pooler_trainable else []),
         )
         if self.dual_reg:
             dual_logs, loss_dual_lam = self._update_loss_dual_lam(cst_penalty)
@@ -116,9 +114,26 @@ class METRA(torch.nn.Module):
     def fetch_single_vector_representation(self, observations, obj_idxs):
         return self.pooler(observations, obj_idxs)
     
-    def fetch_trajectory_encoder_representation(self, observations, obj_idxs):
-        obj_repr = self.pooler(observations, obj_idxs)
-        return self.traj_encoder(obj_repr)[0]
+    def fetch_encoder_representation(self, observations, obj_idxs):
+        with torch.no_grad():
+            obj_repr = self.pooler(observations, obj_idxs)
+            mean = self.traj_encoder(obj_repr)[0]
+        mean = mean.cpu().numpy()
+        std = np.ones_like(mean)
+        samples = mean
+        return mean, std, samples
+    
+    def calculate_rewards(self, observations, next_observations, options, obj_idxs):
+        traj_qty, traj_length = observations.shape[:2]
+        observations = torch.from_numpy(observations.reshape((-1,) + observations.shape[2:])).to(self.device)
+        next_observations = torch.from_numpy(next_observations.reshape((-1,) + next_observations.shape[2:])).to(self.device)
+        obj_idxs = torch.from_numpy(obj_idxs.reshape(-1)).to(self.device)
+        options = torch.from_numpy(options.reshape((-1,) + options.shape[2:])).to(self.device)
+        with torch.no_grad():
+            cur_obj_repr = self.fetch_single_vector_representation(observations, obj_idxs)
+            next_obj_repr = self.fetch_single_vector_representation(next_observations, obj_idxs)
+            rewards = self._update_rewards(cur_obj_repr, next_obj_repr, options)[3]
+        return rewards.reshape((traj_qty, traj_length) + rewards.shape[2:]).cpu().numpy()
     
     def _update_rewards(self, cur_obj_repr, next_obj_repr, options):
         logs = {}
@@ -202,3 +217,65 @@ class METRA(torch.nn.Module):
         loss.backward()
         for key in optimizer_keys:
             self._optimizers[key].step()
+
+    def sample_eval_options(self, num_random_trajectories, traj_length):
+        random_options, option_colors = None, None
+        if self.discrete:
+            random_options, option_colors = self._sample_discrete_options(num_random_trajectories)
+        else:
+            random_options, option_colors = self._sample_continuous_options(num_random_trajectories)
+        random_options = np.expand_dims(random_options, axis = 1)
+        random_options = np.repeat(random_options, traj_length, axis = 1)
+        return random_options, option_colors
+
+    def _sample_discrete_options(self, num_random_trajectories):
+        eye_options = np.eye(self.option_size)
+        random_options = []
+        colors = []
+        for i in range(self.option_size):
+            num_trajs_per_option = num_random_trajectories // self.option_size + (i < num_random_trajectories % self.option_size)
+            for _ in range(num_trajs_per_option):
+                random_options.append(eye_options[i])
+                colors.append(i)
+        random_options = np.array(random_options)
+        colors = np.array(colors)
+        num_evals = len(random_options)
+        cmap = 'tab10' if self.option_size <= 10 else 'tab20'
+        random_option_colors = []
+        for i in range(num_evals):
+            random_option_colors.extend([cm.get_cmap(cmap)(colors[i])[:3]])
+        random_option_colors = np.array(random_option_colors)
+        return random_options, random_option_colors
+
+    def _sample_continuous_options(self, num_random_trajectories):
+        random_options = np.random.randn(num_random_trajectories, self.option_size).astype(np.float32)
+        if self.unit_length:
+            random_options = random_options / np.linalg.norm(random_options, axis=1, keepdims=True)
+        random_option_colors = get_option_colors(random_options * 4)
+        return random_options, random_option_colors
+    
+    def sample_fixated_options(self, traj_length):
+        if self.preset_options is None:
+            video_options = None
+            if self.discrete:
+                video_options = np.eye(self.option_size)
+                video_options = video_options.repeat(2, axis=0) # Num video repeats???
+            else:
+                if self.option_size == 2:
+                    radius = 1. if self.unit_length else 1.5
+                    video_options = []
+                    for angle in [3, 2, 1, 4]:
+                        video_options.append([radius * np.cos(angle * np.pi / 4), radius * np.sin(angle * np.pi / 4)])
+                    video_options.append([0, 0])
+                    for angle in [0, 5, 6, 7]:
+                        video_options.append([radius * np.cos(angle * np.pi / 4), radius * np.sin(angle * np.pi / 4)])
+                    video_options = np.array(video_options)
+                else:
+                    video_options = np.random.randn(8, self.option_size)
+                    if self.unit_length:
+                        video_options = video_options / np.linalg.norm(video_options, axis=1, keepdims=True)
+                video_options = video_options.repeat(2, axis=0).astype(np.float32)
+            video_options = np.expand_dims(video_options, axis = 1)
+            video_options = np.repeat(video_options, traj_length, axis = 1)
+            self.preset_options = video_options
+        return copy.deepcopy(self.preset_options)

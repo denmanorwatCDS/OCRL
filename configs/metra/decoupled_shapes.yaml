@@ -1,0 +1,15 @@
+env:
+  name: "decoupled_shapes"
+  env_kwargs: null
+
+trainer_args:
+  trans_optimization_epochs: 50
+
+replay_buffer:
+  common:
+    max_transitions: 1000000
+
+skill:
+  name: "metra"
+  discrete: false
+  dim_option: 2

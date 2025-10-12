@@ -73,7 +73,7 @@ class Policy(torch.nn.Module):
                     for (k, v) in info.items()
                 }
                 infos['pre_tanh_value'] = pre_tanh_values.detach().cpu().numpy()
-                infos['log_prob'] = np.squeeze(log_probs.detach().cpu().numpy())
+                infos['log_prob'] = log_probs.detach().cpu().numpy()
             else:
                 actions = dist.sample()
                 log_probs = dist.log_prob(actions)
@@ -85,7 +85,7 @@ class Policy(torch.nn.Module):
                 infos['log_prob'] = np.squeeze(log_probs.detach().cpu().numpy())
             return actions, infos
 
-    def get_actions(self, observations, obj_idxs, tasks):
+    def get_actions(self, observations, tasks, obj_idxs):
         observations, obj_idxs = torch.from_numpy(observations).to(self.device), torch.from_numpy(obj_idxs).to(self.device)
         tasks = torch.from_numpy(tasks).to(self.device)
         single_features = self.pooler(observations, obj_idxs)
@@ -103,6 +103,6 @@ class Policy(torch.nn.Module):
         return actions, info
         
     def get_logprob_and_entropy(self, single_features, tasks, actions, pre_tanh_actions):
-        dist, info = self.forward(observations = single_features, tasks = tasks)
+        dist, info = self.forward(single_features = single_features, tasks = tasks)
         log_probs, entropy = dist.log_prob(value = actions, pre_tanh_value = pre_tanh_actions), dist.entropy()
         return np.squeeze(log_probs), entropy, info

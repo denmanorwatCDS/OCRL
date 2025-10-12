@@ -398,23 +398,23 @@ class GaussianMLPCommonStdModule(GaussianMLPBaseModule):
                              normal_distribution_cls = normal_distribution_cls)
         
         self.mean_network = MultiHeadedMLPModule(
+            n_heads = 1,
             input_dim = obs_length + task_length,
-            output_dim = output_dim,
+            output_dims = output_dim,
             hidden_sizes = hidden_sizes,
             hidden_nonlinearity = hidden_nonlinearity,
             hidden_w_init = hidden_w_init,
             hidden_b_init = hidden_b_init,
-            output_nonlinearity = output_nonlinearity,
-            output_w_init = output_w_init,
-            output_b_init = nn.init.zeros_,
+            output_nonlinearities = output_nonlinearity,
+            output_w_inits = output_w_init,
+            output_b_inits = nn.init.zeros_,
             layer_normalization = layer_normalization)
         
-        assert len(output_dim.shape) == 0
         self._log_std_parameter = torch.nn.Parameter(torch.Tensor([[init_std for i in range(output_dim)]]).log())
 
     def _get_mean_and_log_std(self, obs, task):
         data = torch.cat([obs, task], dim = -1)
-        return self.mean_network(data), self._log_std_parameter
+        return self.mean_network(data)[0], self._log_std_parameter
     
 class GaussianMLPTaskBasedStdModule(GaussianMLPBaseModule):
     def __init__(self,
