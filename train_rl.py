@@ -124,9 +124,8 @@ def main(config):
             next_obs, next_done = torch.Tensor(next_obs).to(device), torch.Tensor(next_done).to(device)
             
             metrics.multiple_update(get_episodic_metrics(next_done, infos))
-        
         with torch.no_grad():
-            next_value = agent.get_value(slots)
+            next_value = agent.get_value(oc_model.get_slots(next_obs, training = False))
         rollout_buffer.finalize_tensors_calculate_and_store_GAE(last_done = next_done, 
                                                                 last_value = next_value)
         if config.sb3.train_feature_extractor:
@@ -145,7 +144,7 @@ def main(config):
                 old_approx_kl = (-logratio).mean()
                 approx_kl = ((ratio - 1) - logratio).mean()
                 clipfracs = ((ratio - 1.0).abs() > config.sb3.clip_range).float().mean().item()
-            
+                
             normalized_advantages = (batch['advantage'] - batch['advantage'].mean()) / (batch['advantage'].std() + 1e-8)
             pg_loss1 = -normalized_advantages * ratio
             pg_loss2 = -normalized_advantages * torch.clamp(ratio, 1 - config.sb3.clip_range, 1 + config.sb3.clip_range)
@@ -170,9 +169,10 @@ def main(config):
             optimizer.optimizer_zero_grad()
             # TODO check that target models preserve their weights
             target_oc_model, target_agent = deepcopy(oc_model), deepcopy(agent)
-            target_oc_model.inference_mode(), target_agent.inference_mode()
             ppg_curves = {}
+            oc_model.inference_mode()
             logs_before_ppg, imgs_before_ppg = evaluate_ocr_model(oc_model, val_dataloader)
+            oc_model.training_mode()
             for start_obs, future_obs in rollout_buffer.get_obs_generator(mode = 'ppg'):
                 if not config.sb3.train_feature_extractor:
                     break
@@ -194,7 +194,9 @@ def main(config):
                 metrics.update(optimizer.optimizer_step('oc'))
             if config.sb3.train_feature_extractor:
                 optimizer.reset_optimizers()
+            oc_model.inference_mode()
             logs_after_ppg, imgs_after_ppg = evaluate_ocr_model(oc_model, val_dataloader)
+            oc_model.training_mode()
             log_ppg_results(experiment = experiment, step = global_step, 
                             logs_before_ppg = logs_before_ppg, imgs_before_ppg = imgs_before_ppg,
                             logs_after_ppg = logs_after_ppg, imgs_after_ppg = imgs_after_ppg,
