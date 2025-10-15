@@ -92,9 +92,9 @@ class Policy(nn.Module):
     def inference_mode(self):
         self.eval()
         for name, param in self.named_parameters():
-            param.requires_grad_ = False
+            param.requires_grad = False
 
     def training_mode(self):
         self.train()
         for name, param in self.named_parameters():
-            param.requires_grad_ = True
+            param.requires_grad = True

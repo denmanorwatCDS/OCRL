@@ -30,12 +30,12 @@ class OC_model(nn.Module):
     def inference_mode(self):
         self.eval()
         for param in self.parameters():
-            param.requires_grad_ = False
+            param.requires_grad = False
 
     def training_mode(self):
         self.train()
         for param in self.parameters():
-            param.requires_grad_ = True
+            param.requires_grad = True
 
     def convert_attns_to_masks(self, obs, attns):
         attns = attns.reshape(
