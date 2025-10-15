@@ -130,8 +130,9 @@ def main(config):
             next_value = agent.get_value(oc_model.get_slots(next_obs, training = False))
         rollout_buffer.finalize_tensors_calculate_and_store_GAE(last_done = next_done, 
                                                                 last_value = next_value)
+        agent.training_mode()
         if config.sb3.train_feature_extractor:
-            oc_model.training_mode(), agent.training_mode()
+            oc_model.training_mode()
         for batch, start_obs, future_obs in rollout_buffer.convert_transitions_to_rollout():
             slots = oc_model.get_slots(batch['obs'], training = False)
             if not config.sb3.train_feature_extractor:
