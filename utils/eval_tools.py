@@ -81,8 +81,6 @@ def calculate_ari(true_masks, pred_masks, foreground=False):
 def evaluate_ocr_model(model, val_dataloader):
     # OCR logging
     for j, batch in enumerate(val_dataloader):
-        if j > 50:
-            break
         mets = model.calculate_validation_data(batch['obss'].cuda())
         if j == 0:
             precalc_data, ari_dict, recon_images, attn_images = {}, {}, [], {}

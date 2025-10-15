@@ -101,7 +101,9 @@ def main(config):
     next_obs, next_done = torch.Tensor(envs.reset()).to(device), torch.zeros(config.num_envs).to(device)
     
     metrics = Metrics()
+    oc_model.inference_mode()
     logs_before_ppg, imgs_before_ppg = evaluate_ocr_model(oc_model, val_dataloader)
+    oc_model.training_mode()
     log_ppg_results(experiment = experiment, step = 0, 
                     logs_before_ppg = logs_before_ppg, imgs_before_ppg = imgs_before_ppg,
                     logs_after_ppg = logs_before_ppg, imgs_after_ppg = imgs_before_ppg,
