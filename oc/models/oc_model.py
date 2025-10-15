@@ -30,12 +30,16 @@ class OC_model(nn.Module):
     def inference_mode(self):
         self.eval()
         for param in self.parameters():
-            param.requires_grad = False
+            if param.dtype in (torch.float, torch.float16, torch.float32, torch.float64, 
+                               torch.complex, torch.complex32, torch.complex64, torch.complex128):
+                param.requires_grad = False
 
     def training_mode(self):
         self.train()
         for param in self.parameters():
-            param.requires_grad = True
+            if param.dtype in (torch.float, torch.float16, torch.float32, torch.float64, 
+                               torch.complex, torch.complex32, torch.complex64, torch.complex128):
+                param.requires_grad = True
 
     def convert_attns_to_masks(self, obs, attns):
         attns = attns.reshape(
