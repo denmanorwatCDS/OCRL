@@ -94,9 +94,8 @@ class Slot_Attention(OC_model):
     def get_loss(self, obs, future_obs, do_dropout):
         slots, _ = self._get_slots(obs, do_dropout = do_dropout, training = True)
         recon, _ = self._dec(slots)
-        mse = torch.nn.MSELoss(reduction = "mean")
         hung_loss = 0
-        SA_loss = mse(obs, recon)
+        SA_loss = ((obs - recon) ** 2).sum() / obs.shape[0]
         mets = {'total_loss': SA_loss.detach().cpu(),
                 'SA_loss': SA_loss.detach().cpu()}
         if self.use_hungarian_loss:

@@ -157,15 +157,14 @@ class SLATE(OC_model):
         decoder_output = self._tfdec(z_emb[:, :-1], projected_slots)
         pred = self._out(decoder_output)
         cross_entropy = (
-            -(z_hard * torch.log_softmax(pred, dim=-1)).flatten(start_dim=1).mean())
+            -(z_hard * torch.log_softmax(pred, dim=-1)).flatten(start_dim=1).sum(-1).mean())
         return cross_entropy
     
     def get_loss(self, obs, future_obs, do_dropout):
         # DVAE component of the loss
         z, z_hard = self._get_z(obs)
         dvae_recon = self._dvae.decode(z)
-        mse = torch.nn.MSELoss(reduction = "mean")
-        dvae_mse = mse(obs, dvae_recon)
+        dvae_mse = ((obs - dvae_recon) ** 2).sum() / obs.shape[0]
 
         # SLATE component of the loss
         slots, _ = self._get_slots(obs, do_dropout = do_dropout, training = True)
