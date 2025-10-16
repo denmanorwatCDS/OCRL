@@ -157,12 +157,12 @@ def main(config):
             pg_loss2 = -normalized_advantages * torch.clamp(ratio, 1 - config.sb3.clip_range, 1 + config.sb3.clip_range)
             pg_loss = torch.max(pg_loss1, pg_loss2).mean()
             v_loss = ((newvalue - batch['return']) ** 2).mean()
-            entropy_loss = entropy.mean()
+            entropy_loss = -entropy.mean()
             oc_loss, mets = oc_model.get_loss(obs = start_obs, future_obs = future_obs, do_dropout = True)
             mets = add_prefix(mets, 'oc')
             if not config.sb3.train_feature_extractor:
                 oc_loss = 0
-            loss = pg_loss - config.sb3.ent_coef * entropy_loss + config.sb3.vf_coef * v_loss + oc_loss
+            loss = pg_loss + config.sb3.ent_coef * entropy_loss + config.sb3.vf_coef * v_loss + oc_loss
             optimizer.optimizer_zero_grad()
             loss.backward()
             metrics.update(optimizer.optimizer_step('rl'))
