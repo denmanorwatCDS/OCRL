@@ -8,6 +8,7 @@ from oc.models.utils.networks import CNNEncoder, PositionalEmbedding, linear
 from oc.models.utils.dropouts import CnnPatchDropout, FeatureDropout
 from oc.models.utils.slot_attention import SlotAttentionModule
 from oc.models.slate.submodels import dVAE, LearnedPositionalEncoding, TransformerDecoder, gumbel_softmax, cosine_anneal
+from collections import OrderedDict
 
 # TODO make dict parameters as mixin into classes, not as method implemented in 100500 models
 # TODO change implementation to original SLATE! This pseudoconverter is redundant, and may be even harmfull!
@@ -246,6 +247,33 @@ class SLATE(OC_model):
         self._tau = cosine_anneal(
             step, self._tau_start, self._tau_final, 0, self._tau_steps
         )
+
+    def load_jaesik_SLATE(self, state_dict):
+        # Loads original slate from OCRL repository
+        unique_modules = {}
+        for key, val in state_dict['ocr_module_state_dict'].items():
+            module_name, submodule_name = key.split('.')[0], '.'.join(key.split('.')[1:])
+            if not (module_name in unique_modules.keys()):
+                unique_modules[module_name] = OrderedDict()
+            unique_modules[module_name][submodule_name] = val 
+        unique_modules.keys()
+        self._dvae.load_state_dict(unique_modules['_dvae'])
+        self._enc.load_state_dict(unique_modules['_enc'])
+        self._enc_pos.load_state_dict(unique_modules['_enc_pos'])
+
+        unique_modules['_slotattn']['slot_attention.slot_mu'] = unique_modules['_slotattn'].pop('slot_mu')
+        unique_modules['_slotattn']['slot_attention.slot_log_sigma'] = unique_modules['_slotattn'].pop('slot_log_sigma')
+        unique_modules['_slotattn']['slot_attention.project_q.0.weight'] = unique_modules['_slotattn'].pop('slot_attention.project_q.weight')
+        unique_modules['_slotattn']['slot_attention.project_k.0.weight'] = unique_modules['_slotattn'].pop('slot_attention.project_k.weight')
+        unique_modules['_slotattn']['slot_attention.project_v.0.weight'] = unique_modules['_slotattn'].pop('slot_attention.project_v.weight')
+        self._slot_attention.load_state_dict(unique_modules['_slotattn'])
+
+        self._slotproj.load_state_dict(unique_modules['_slotproj'])
+        self._dict.load_state_dict(unique_modules['_dict'])
+        self._bos_token.load_state_dict(unique_modules['_bos_token'])
+        self._z_pos.load_state_dict(unique_modules['_z_pos'])
+        self._tfdec.load_state_dict(unique_modules['_tfdec'])
+        self._out.load_state_dict(unique_modules['_out'])
 
 
 class OneHotDictionary(nn.Module):

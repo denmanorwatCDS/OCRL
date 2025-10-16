@@ -85,7 +85,11 @@ def main(config):
         pretrained_path = '/'.join([PATH_TO_TRAIN_RL_DOT_PY, 'models', 
                                     f'{config.env.obs_size}x{config.env.obs_size}', config.pretrained_model.env,
                                     config.ocr.name + '_' + config.pretrained_model.save_name + ';step:' + config.pretrained_model.step])
-        oc_model.load_state_dict(torch.load(pretrained_path, weights_only = True))
+        if config.pretrained_model.save_name != 'orig':
+            oc_model.load_state_dict(torch.load(pretrained_path, weights_only = True))
+        else:
+            oc_model.load_jaesik_SLATE(torch.load(pretrained_path, weights_only = True))
+
 
     oc_model = oc_model.to('cuda')
     ocr_optimizer, policy_optimizer = omegaconf.OmegaConf.to_container(config.ocr.optimizer), \
