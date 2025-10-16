@@ -156,7 +156,7 @@ def main(config):
             pg_loss1 = -normalized_advantages * ratio
             pg_loss2 = -normalized_advantages * torch.clamp(ratio, 1 - config.sb3.clip_range, 1 + config.sb3.clip_range)
             pg_loss = torch.max(pg_loss1, pg_loss2).mean()
-            v_loss = 0.5 * ((newvalue - batch['return']) ** 2).mean()
+            v_loss = ((newvalue - batch['return']) ** 2).mean()
             entropy_loss = entropy.mean()
             oc_loss, mets = oc_model.get_loss(obs = start_obs, future_obs = future_obs, do_dropout = True)
             mets = add_prefix(mets, 'oc')
