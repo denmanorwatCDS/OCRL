@@ -6,6 +6,7 @@ env: CwTargetEnv
 precollected_dataset: ClassicalCW
 
 mode: 'hard'
+reward: sparse
 target: ['blue']
 COLORS: ['blue', 'green', 'yellow', 'red']
 obs_size: ???

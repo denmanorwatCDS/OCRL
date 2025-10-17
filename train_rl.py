@@ -88,7 +88,7 @@ def main(config):
         if config.pretrained_model.save_name != 'orig':
             oc_model.load_state_dict(torch.load(pretrained_path, weights_only = True))
         else:
-            oc_model.load_jaesik_SLATE(torch.load(pretrained_path, weights_only = True))
+            oc_model.load_jaesik_model(torch.load(pretrained_path, map_location='cuda:0'))
 
 
     oc_model = oc_model.to('cuda')

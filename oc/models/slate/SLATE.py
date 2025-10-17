@@ -248,7 +248,7 @@ class SLATE(OC_model):
             step, self._tau_start, self._tau_final, 0, self._tau_steps
         )
 
-    def load_jaesik_SLATE(self, state_dict):
+    def load_jaesik_model(self, state_dict):
         # Loads original slate from OCRL repository
         unique_modules = {}
         for key, val in state_dict['ocr_module_state_dict'].items():

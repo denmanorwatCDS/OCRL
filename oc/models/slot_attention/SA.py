@@ -9,6 +9,7 @@ from oc.models.oc_model import OC_model
 from oc.models.utils.losses import hungarian_loss
 from itertools import chain
 from oc.models.utils.networks import linear
+from collections import OrderedDict
 
 # TODO make dict parameters as mixin into classes, not as method implemented in 100500 models
 class Slot_Attention(OC_model):
@@ -153,3 +154,24 @@ class Slot_Attention(OC_model):
 
     def save_oc_extractor(self):
         pass
+
+    def load_jaesik_model(self, state_dict):
+        # Loads original slate from OCRL repository
+        unique_modules = {}
+        for key, val in state_dict['ocr_module_state_dict'].items():
+            module_name, submodule_name = key.split('.')[0], '.'.join(key.split('.')[1:])
+            if not (module_name in unique_modules.keys()):
+                unique_modules[module_name] = OrderedDict()
+            unique_modules[module_name][submodule_name] = val 
+        unique_modules.keys()
+        self._enc.load_state_dict(unique_modules['_enc'])
+        self._enc_pos.load_state_dict(unique_modules['_enc_pos'])
+
+        unique_modules['_slotattn']['slot_attention.slot_mu'] = unique_modules['_slotattn'].pop('slot_mu')
+        unique_modules['_slotattn']['slot_attention.slot_log_sigma'] = unique_modules['_slotattn'].pop('slot_log_sigma')
+        unique_modules['_slotattn']['slot_attention.project_q.0.weight'] = unique_modules['_slotattn'].pop('slot_attention.project_q.weight')
+        unique_modules['_slotattn']['slot_attention.project_k.0.weight'] = unique_modules['_slotattn'].pop('slot_attention.project_k.weight')
+        unique_modules['_slotattn']['slot_attention.project_v.0.weight'] = unique_modules['_slotattn'].pop('slot_attention.project_v.weight')
+        self._slot_attention.load_state_dict(unique_modules['_slotattn'])
+
+        self._dec.load_state_dict(unique_modules['_dec'])
