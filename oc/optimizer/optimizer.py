@@ -13,7 +13,7 @@ from copy import deepcopy
 def calculate_weight_norm(params):
     norm = []
     for param in params:
-            norm.append(param.detach().flatten().clone())
+        norm.append(param.detach().flatten().clone())
     if norm:
         return torch.sum(torch.cat(norm)**2)**(1/2)
     return 0

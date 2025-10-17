@@ -113,6 +113,7 @@ class OCRolloutBuffer():
         self._trajectories['return'], self._trajectories['advantage'] = returns, advantages
 
     def convert_transitions_to_rollout(self):
+        # TODO Check me, if i am sampling correct number of samples of correct batches
         self.rollout = {}
         for key in self._trajectories.keys():
             self.rollout[key] = deepcopy(self._trajectories[key].reshape((-1,) + self.target_shapes[key]))

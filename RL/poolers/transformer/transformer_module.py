@@ -29,8 +29,7 @@ class Transformer(nn.Module):
 class ClsToken(nn.Module):
     def __init__(self, emb_size):
         super().__init__()
-        self._cls_token = nn.Parameter(torch.normal(mean = torch.zeros(emb_size), 
-                                                    std = torch.ones(emb_size)))
+        self._cls_token = nn.Parameter(torch.zeros(emb_size))
 
     def forward(self):
         return self._cls_token

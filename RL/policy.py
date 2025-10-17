@@ -7,7 +7,7 @@ from functools import partial
 
 def ortho_linear_init(layer, std = np.sqrt(2), bias_const = 0.):
     if isinstance(layer, (nn.Linear, nn.Conv2d)):
-        nn.init.orthogonal_(layer.weight, gain=std)
+        nn.init.orthogonal_(layer.weight, gain = std)
         if layer.bias is not None:
             torch.nn.init.constant_(layer.bias, bias_const)
 
@@ -70,12 +70,13 @@ class Policy(nn.Module):
             std = torch.exp(self.logstd.expand_as(actor_out))
             return Normal(loc = actor_out, scale = std)
     
-    # TODO check logit shape. It must be of the shape: batch x actions
+    # TODO check logit shape. It must be of the shape: batch x actions.
     def get_action_logprob_entropy(self, slots, action = None):
         dist = self.get_action_distribution(slots)
         if action is None:
             action = dist.sample()
         elif not (action is None) and not self.is_action_discrete:
+            # TODO check if unsqueeze is required
             action = torch.unsqueeze(action, axis = -2)
         # TODO check if log_prob is implemented correctly, 
         # meaning in discrete case it must return batch of logprobs and batch of entropies

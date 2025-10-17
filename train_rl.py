@@ -116,7 +116,7 @@ def main(config):
         oc_model.inference_mode(), agent.inference_mode()
         for step in range(0, config.sb3.n_steps, config.num_envs):
             global_step += config.num_envs
-
+            # TODO Check obs are in range [0; 1]
             with torch.no_grad():
                 slots = oc_model.get_slots(next_obs, training = False)
                 action, logprob, entropy = agent.get_action_logprob_entropy(slots)
