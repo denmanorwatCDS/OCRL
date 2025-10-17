@@ -21,11 +21,11 @@ feature_dropout:
   feature_dropout_proba: 0.
 
 slotattr:
-  num_iterations: 7
+  num_iterations: 3
   num_slots: ???
   num_slot_heads: 1
-  slot_size: 64
-  mlp_hidden_size: 128
+  slot_size: 192
+  mlp_hidden_size: 192
   pos_channels: 4
   preinit_type: classic
   normalizer: null
