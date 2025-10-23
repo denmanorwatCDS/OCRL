@@ -67,11 +67,11 @@ class PPO(Policy):
 
     def optimize_op(self, observations, obj_idxs, options, actions, pre_tanh_actions, old_logprobs, advantages, returns):
         logs = {}
-        feat_vector = self.pooler(observations, obj_idxs)
-        act_loss, act_logs = self.update_loss_act(feat_vector, options, actions, pre_tanh_actions, old_logprobs, advantages)
+        act_vector, crit_vector = self.pooler(observations, obj_idxs)
+        act_loss, act_logs = self.update_loss_act(act_vector, options, actions, pre_tanh_actions, old_logprobs, advantages)
         if act_logs is None:
             return logs
-        v_loss, v_logs = self.update_loss_vf(feat_vector, options, returns)
+        v_loss, v_logs = self.update_loss_vf(crit_vector, options, returns)
         logs.update({**act_logs, **v_logs})
         self._gradient_descent(act_loss + v_loss, ['actor', 'critic'] + (['pooler'] if self.is_pooler_trainable else []))
         return logs
@@ -84,8 +84,8 @@ class PPO(Policy):
         for key in optimizer_keys:
             self._optimizers[key].step()
 
-    def update_loss_act(self, feat_vector, options, actions, pre_tanh_actions, old_logprobs, advantages):
-        new_logprobs, entropy, info = self.get_logprob_and_entropy(feat_vector, options, actions, pre_tanh_actions)
+    def update_loss_act(self, actor_vector, options, actions, pre_tanh_actions, old_logprobs, advantages):
+        new_logprobs, entropy, info = self.get_logprob_and_entropy(actor_vector, options, actions, pre_tanh_actions)
         log_ratio = new_logprobs - old_logprobs
         ratio = log_ratio.exp()
 
@@ -122,9 +122,9 @@ class PPO(Policy):
                 'std_advantage': std_adv,
                 'mean_policy_std': torch.mean(info['normal_std'])}
     
-    def update_loss_vf(self, feat_vector, options, returns):
+    def update_loss_vf(self, critic_vector, options, returns):
         # TODO uncomment lines
-        new_values = torch.squeeze(self.critic1(feat_vector, options))
+        new_values = torch.squeeze(self.critic1(critic_vector, options))
         v_loss = 0.5 * ((new_values - returns)**2).mean() * self.vf_coef
         
         return v_loss, {'value_loss': v_loss/(0.5 * self.vf_coef), 
@@ -137,6 +137,6 @@ class PPO(Policy):
         obj_idxs = torch.from_numpy(obj_idxs.reshape(-1)).to(self.device)
         options = torch.from_numpy(options.reshape((-1,) + options.shape[2:])).to(self.device)
         with torch.no_grad():
-            feat_vector = self.pooler(observations, obj_idxs)
-            values = self.critic1(feat_vector, options)
+            _, critic_vector = self.pooler(observations, obj_idxs)
+            values = self.critic1(critic_vector, options)
             return values.reshape((traj_qty, traj_length) + values.shape[2:]).cpu().numpy().astype(np.float32)

@@ -49,8 +49,8 @@ class BaseEnv:
 
         self.action_space = spaces.Box(low = -np.array([1, 1]),
                                        high = np.array([1, 1]))
-        if self.render_mode == "state":
-            self.state_fetcher = self.prepare_states(self._SHAPES + ([agent_params[1]] if agent_params[1] not in self._SHAPES else []) )
+        if self.render_mode in ['state', 'simple_state']:
+            self.state_fetcher = self.prepare_states(self._SHAPES + ([agent_params[1]] if agent_params[1] not in self._SHAPES else []))
             self.observation_space = spaces.Box(
                 low=0,
                 high=1,
@@ -77,13 +77,20 @@ class BaseEnv:
         # len(shapes) - Quantity of shapes
         # 1 - is scale vector size,
         # 2 - is position vector size
-        self._state_size = 3 + len(preset_shapes) + 1 + 2
-        def state_fetcher(color, shape, scale, position):
-            color_vec = np.array([c for c in colors.to_rgb(color)])
-            shape_vec = np.zeros(len(preset_shapes))
-            shape_vec[preset_shapes.index(shape)] = 1
-            scale_vec = np.array([scale])
-            return np.concatenate([color_vec, shape_vec, scale_vec, position])
+        if self.render_mode == 'state':
+            self._state_size = 3 + len(preset_shapes) + 1 + 2
+            def state_fetcher(color, shape, scale, position):
+                color_vec = np.array([c for c in colors.to_rgb(color)])
+                shape_vec = np.zeros(len(preset_shapes))
+                shape_vec[preset_shapes.index(shape)] = 1
+                scale_vec = np.array([scale])
+                return np.concatenate([color_vec, shape_vec, scale_vec, position])
+        elif self.render_mode == 'simple_state':
+            self._state_size = 2
+            def state_fetcher(color, shape, scale, position):
+                return position
+        else:
+            raise NotImplementedError
         return state_fetcher
 
     def _get_position(self, pos_min, pos_max, radius, eps):
@@ -223,7 +230,7 @@ class BaseEnv:
             next_coordinates = next_coordinates.astype(np.float32)
         )
         if self.render_info:
-            if self.render_mode == 'state':
+            if self.render_mode in ['state', 'simple_state']:
                 info['render'] = self.render(mode = 'rgb_array')
             elif self.render_mode == 'rgb_array':
                 info['render'] = obs
@@ -233,7 +240,7 @@ class BaseEnv:
     def render(self, mode=None, fill_empty=True):
         if mode is None:
             mode = self.render_mode
-        if mode == "state":
+        if mode in ['state', 'simple_state']:
             gt_states = np.zeros((self._objs.shape[0], self._state_size))
             for i in range(gt_states.shape[0]):
                 if self._objs[i, 0] == -1:

@@ -14,7 +14,7 @@ from RL.policies.sac import SAC
 from RL.policies.ppo import PPO
 from gym.vector import AsyncVectorEnv, SyncVectorEnv
 from eval_utils.traj_utils import draw_2d_gaussians, render_trajectories, calc_eval_metrics
-from eval_utils.eval_utils import StatisticsCalculator
+from eval_utils.eval_utils import StatisticsCalculator, monte_carlo_value_difference
 from eval_utils.video_utils import record_video
 import matplotlib.pyplot as plt
 import matplotlib
@@ -31,7 +31,6 @@ def set_seed(seed):
 def fetch_config():
     parser = argparse.ArgumentParser(prog='Metra')
     parser.add_argument('--default_config')
-    parser.add_argument('--pipeline_config')
     parser.add_argument('--env_config')
     args = parser.parse_args()
 
@@ -39,10 +38,6 @@ def fetch_config():
     rl_config_path = config_folder + '/rl_algos/' + args.default_config
     rl_config = omegaconf.OmegaConf.load(rl_config_path)
     algo_name = rl_config.rl_algo.name.lower()
-
-    pipeline_config_path = config_folder + '/pipelines/' + args.pipeline_config
-    pipeline_config = omegaconf.OmegaConf.load(pipeline_config_path)
-    rl_config.merge_with(pipeline_config)
 
     env_config_path = config_folder + '/' + args.env_config
     env_config = omegaconf.OmegaConf.load(env_config_path)
@@ -89,6 +84,10 @@ def make_env(env_name, env_kwargs, max_path_length, seed, frame_stack, normalize
         from envs.shapes.push_env.push import PushEnv
         env = PushEnv(seed = seed, arena_size = 2.5, render_mode = 'state', 
                       render_info = render_info)
+    elif env_name == 'easy_decoupled_shapes':
+        from envs.shapes.push_env.push import PushEnv
+        env = PushEnv(seed = seed, arena_size = 2.5, render_mode = 'simple_state', 
+                      render_info = render_info)
     elif env_name.startswith('dmc'):
         from envs.custom_dmc_tasks import dmc
         from envs.custom_dmc_tasks.pixel_wrappers import RenderWrapper
@@ -127,7 +126,6 @@ def make_env(env_name, env_kwargs, max_path_length, seed, frame_stack, normalize
         normalizer_mean, normalizer_std = get_normalizer_preset(f'{normalizer_name}_preset')
         env = consistent_normalize(env, flatten_obs = False, normalize_obs = True, mean = normalizer_mean, std = normalizer_std, 
                                    **normalizer_kwargs)
-
     return env
     
 def run():
@@ -271,7 +269,6 @@ def train_cycle(trainer_config, agent, skill_model, replay_buffer, make_env_fn, 
             continue
 
         agent.train()
-        
         skill_stats = StatisticsCalculator('skill')
         policy_stats = StatisticsCalculator('policy')
 
@@ -317,12 +314,12 @@ def train_cycle(trainer_config, agent, skill_model, replay_buffer, make_env_fn, 
         if (prev_cur_step // trainer_config.eval_frequency) < (cur_step // trainer_config.eval_frequency):
             eval_metrics(make_env_fn, agent, skill_model, 
                          num_random_trajectories = 48, traj_length = trainer_config.max_path_length,
-                         sample_processor = replay_buffer.preprocess_data,
+                         gamma = replay_buffer.discount, sample_processor = replay_buffer.preprocess_data,
                          device = "cuda:0", comet_logger = comet_logger, step = cur_step)
         
         prev_cur_step = cur_step
 
-def render_ori_trajectories(options, colors, n_slots, n_objects, eval_env, agent):
+def render_ori_trajectories(options, colors, n_slots, n_objects, eval_env_maker, agent):
     fig, axs = plt.subplots(nrows = n_slots, ncols = n_objects)
     fig.set_size_inches(15, 15)
     if isinstance(axs, matplotlib.axes._axes.Axes):
@@ -331,7 +328,9 @@ def render_ori_trajectories(options, colors, n_slots, n_objects, eval_env, agent
     random_trajectories = []
     for slot_i in range(n_slots):
         obj_idxs = np.zeros(options.shape[:-1], dtype = np.int32) + slot_i
-        obj_trajectories = collect_eval_trajectories(env = eval_env, agent = agent, options = options, obj_idxs = obj_idxs)
+        eval_env = eval_env_maker()
+        obj_trajectories = collect_eval_trajectories(env = eval_env, agent = agent, 
+                                                     options = options, obj_idxs = obj_idxs)
         for obj_i in range(n_objects):
             coordinates = obj_trajectories['coordinates'][:, :, obj_i]
             last_coordinate = obj_trajectories['next_coordinates'][:, -1:, obj_i]
@@ -340,6 +339,7 @@ def render_ori_trajectories(options, colors, n_slots, n_objects, eval_env, agent
             tmp_coordinates = np.concatenate([coordinates, last_coordinate], axis = 1)
             axs[slot_i][obj_i].set_title(f'Slot №{slot_i} Object №{obj_i}')
             render_trajectories(tmp_coordinates, colors, None, axs[slot_i][obj_i])
+        eval_env.close()
         random_trajectories.append(obj_trajectories)
     fig.canvas.draw()
     skill_img = np.frombuffer(fig.canvas.tostring_rgb(), dtype = np.uint8)
@@ -376,10 +376,10 @@ def render_phi_plot(skill_model, random_trajectories, eval_color, sample_process
     plt.close(fig)
     return phi_img
 
-def eval_metrics(make_env_fn, agent, skill_model, num_random_trajectories, traj_length,
+def eval_metrics(make_env_fn, agent, skill_model, num_random_trajectories, traj_length, gamma,
                  sample_processor, device, comet_logger, step):
     example_env = make_env_fn(seed = 0)
-    traj_env = AsyncVectorEnv([lambda: make_env_fn(seed = i) for i in range(4)], context='spawn')
+    traj_env_maker = lambda: AsyncVectorEnv([lambda: make_env_fn(seed = i) for i in range(4)], context='spawn')
     eval_options, eval_color = skill_model.sample_eval_options(num_random_trajectories, traj_length)
     n_objects = example_env.n_obj
     n_slots = n_objects
@@ -389,32 +389,56 @@ def eval_metrics(make_env_fn, agent, skill_model, num_random_trajectories, traj_
     print('Warning! In old version _action_noise_std was setting to None seemingly does not exist.\
            Proceed with caution for new environments')
     skill_img, option_trajectories = render_ori_trajectories(options = eval_options, colors = eval_color, 
-                                                             n_slots = n_slots, n_objects = n_objects, eval_env = traj_env, 
+                                                             n_slots = n_slots, n_objects = n_objects, eval_env_maker = traj_env_maker, 
                                                              agent = agent)
-    traj_env.close()
-    del traj_env
     comet_logger.log_image(image_data = skill_img, name = "Skill trajs", step = step)
 
     phi_img = render_phi_plot(skill_model = skill_model, random_trajectories = option_trajectories, 
                              eval_color = eval_color, sample_processor = sample_processor, device = device)
     comet_logger.log_image(image_data = phi_img, name = "Phi plot", step = step)
 
-    video_env = AsyncVectorEnv([lambda: make_env_fn(seed = i, render_info = True) for i in range(2)], context='spawn')
     # Videos
     videos = []
     video_options = skill_model.sample_fixated_options(traj_length)
     for slot_idx in range(n_slots):
+        video_env = AsyncVectorEnv([lambda: make_env_fn(seed = i, render_info = True) for i in range(2)], context='spawn')
         obj_idxs = np.zeros(video_options.shape[:-1], dtype = np.int32) + slot_idx
         video_trajectories = collect_eval_trajectories(env = video_env, agent = agent, options = video_options, obj_idxs = obj_idxs)
         videos.append(video_trajectories['render'])
+        video_env.close()
 
     agent._force_use_mode_actions = False
     for i, skills_videos in enumerate(videos):
         path_to_video = record_video(skills_videos, skip_frames = 2)
         comet_logger.log_video(file = path_to_video, name = f'Slot №{i}'.format(i), step = step)
     
-    comet_logger.log_metrics(calc_eval_metrics(option_trajectories[0]['coordinates'], example_env.env_discretizer()), step = step)
+    mets = {}
+    if n_objects == 1:
+        mets.update(calc_eval_metrics(option_trajectories[0]['coordinates'], example_env.env_discretizer()))
+    else:
+        for obj_idx in range(n_objects):
+            mets.update(calc_eval_metrics(option_trajectories[obj_idx]['coordinates'][:, :, obj_idx], 
+                                          example_env.env_discretizer(), 
+                                          prefix = f'Object№{obj_idx}'))
+    for obj_idx in range(n_objects):
+        rewards = skill_model.calculate_rewards(observations = option_trajectories[obj_idx]['observations'], 
+                                                next_observations = option_trajectories[obj_idx]['next_observations'],
+                                                options = option_trajectories[obj_idx]['options'], 
+                                                obj_idxs = option_trajectories[obj_idx]['obj_idxs'])
+        values = agent.inference_value(observations = option_trajectories[obj_idx]['observations'],
+                                       actions = option_trajectories[obj_idx]['actions'],
+                                       options = option_trajectories[obj_idx]['options'],
+                                       obj_idxs = option_trajectories[obj_idx]['obj_idxs'])
 
+        mc_value_differences = monte_carlo_value_difference(rewards, gamma = gamma)
+        predicted_value_differences = values - values[:, -2:-1].repeat(values.shape[1], axis = 1) *\
+            (np.fliplr(np.cumprod(np.ones(values.shape) * gamma, axis = 1)) / gamma)
+        mets.update({f'Truncated_returns№{obj_idx}': np.mean(mc_value_differences)})
+        mets.update({f'Predicted_truncated_returns№{obj_idx}': np.mean(predicted_value_differences)})
+        mets.update({f'Mean_error№{obj_idx}': np.mean(mc_value_differences - predicted_value_differences)})
+        mets.update({f'Mean_absolute_error№{obj_idx}': np.mean(np.abs(mc_value_differences - predicted_value_differences))})
+    mets = {f'val/{key}': val for key, val in mets.items()}
+    comet_logger.log_metrics(mets, step = step)
     example_env.close(), video_env.close()
     del example_env, video_env
 

@@ -88,11 +88,11 @@ class Policy(torch.nn.Module):
     def get_actions(self, observations, tasks, obj_idxs):
         observations, obj_idxs = torch.from_numpy(observations).to(self.device), torch.from_numpy(obj_idxs).to(self.device)
         tasks = torch.from_numpy(tasks).to(self.device)
-        single_features = self.pooler(observations, obj_idxs)
+        features = self.pooler(observations, obj_idxs)
         if self._force_use_mode_actions:
-            actions, info = self.get_mode_actions(single_features, tasks)
+            actions, info = self.get_mode_actions(features, tasks)
         else:
-            actions, info = self.get_sample_actions(single_features, tasks)
+            actions, info = self.get_sample_actions(features, tasks)
         if self._clip_action:
             epsilon = 1e-6
             actions = np.clip(

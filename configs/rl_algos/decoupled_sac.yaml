@@ -54,8 +54,8 @@ rl_algo:
     lr: 1e-4
     wd: 0.
     kwargs: 
-      nhead: 2
-      dim_feedforward: 1024
+      nhead: 8
+      dim_feedforward: 192
   policy:
     name: 'option_policy'
     lr: 1e-4
@@ -97,13 +97,13 @@ replay_buffer:
 
 trainer_args:
   n_parallel: 4
-  traj_batch_size: 8
+  traj_batch_size: 64
   skills_per_trajectory: 1
   n_epochs: 100_000
   trans_optimization_epochs: 200
   skill_optimization_epochs: null
   policy_optimization_mult: null
-  max_path_length: 200
+  max_path_length: 25
   transitions_before_training: 10_000
   log_frequency: 50_000
   eval_frequency: 250_000

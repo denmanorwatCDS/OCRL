@@ -74,13 +74,13 @@ class SAC(Policy):
 
     def optimize_op(self, observations, next_observations, obj_idxs, options, actions, dones, rewards):
         logs = {}
-        cur_feat_vector = self.pooler(observations, obj_idxs)
-        next_feat_vector = self.pooler(next_observations, obj_idxs)
+        cur_features = self.pooler(observations, obj_idxs)
+        next_features = self.pooler(next_observations, obj_idxs)
         loss_qf, qf_logs = self._update_loss_qf(
-            observations = cur_feat_vector,
+            cur_features = cur_features,
             options = options,
             actions = actions,
-            next_observations = next_feat_vector,
+            next_features = next_features,
             dones = dones,
             rewards = rewards * self._reward_scale_factor
         )
@@ -90,7 +90,7 @@ class SAC(Policy):
             retain_graph=(True if self.is_pooler_trainable else False)
         )
         
-        new_action_log_probs, sacp_loss, sacp_logs = self._update_loss_sacp(observations = cur_feat_vector,
+        new_action_log_probs, sacp_loss, sacp_logs = self._update_loss_sacp(cur_features = cur_features,
                                                                             options = options)
         self._gradient_descent(
             sacp_loss,
@@ -103,8 +103,32 @@ class SAC(Policy):
             optimizer_keys=['log_alpha'],
         )
         logs.update({**qf_logs, **sacp_logs, **alpha_logs})
-        self.update_targets()
+        if self.is_pooler_trainable:
+            """
+            logs.update({'Skill token mean': torch.mean(self.pooler.skill_token.detach().cpu()),
+                         'Skill token std': torch.std(self.pooler.skill_token.detach().cpu()),
+                         'Actor token mean': torch.mean(self.pooler.act_token.detach().cpu()),
+                         'Actor token std': torch.std(self.pooler.act_token.detach().cpu()),
+                         'Critic token mean': torch.mean(self.pooler.crit_token.detach().cpu()),
+                         'Critic token std': torch.std(self.pooler.crit_token.detach().cpu())})
+            """
+        self._update_targets()
         return logs
+    
+    def inference_value(self, observations, actions, options, obj_idxs):
+        with torch.no_grad():
+            batch_length, horizon_length, obj_length = observations.shape[:3]
+            observation_shape = observations.shape[3:]
+            observations = torch.from_numpy(observations.reshape((batch_length * horizon_length, obj_length, *observation_shape))).to(self.device)
+            actions = torch.from_numpy(actions.reshape((batch_length * horizon_length, -1))).to(self.device)
+            options = torch.from_numpy(options.reshape((batch_length * horizon_length, -1))).to(self.device)
+            obj_idxs = torch.from_numpy(obj_idxs.reshape((batch_length * horizon_length))).to(self.device)
+            cur_features = self.pooler(observations, obj_idxs)
+            values = torch.min(
+                self.target_critic1(cur_features, options, actions).flatten(),
+                self.target_critic2(cur_features, options, actions).flatten(),
+            )
+        return values.reshape((batch_length, horizon_length)).detach().cpu().numpy()
 
     def _gradient_descent(self, loss, optimizer_keys, retain_graph = False):
         for key in optimizer_keys:
@@ -113,7 +137,7 @@ class SAC(Policy):
         for key in optimizer_keys:
             self._optimizers[key].step()
 
-    def update_targets(self):
+    def _update_targets(self):
         target_qfs = [self.target_critic1, self.target_critic2]
         qfs = [self.critic1, self.critic2]
         for target_qf, qf in zip(target_qfs, qfs):
@@ -122,19 +146,19 @@ class SAC(Policy):
                                    param.data * self.tau)
                 
     def _update_loss_qf(self,
-        observations,
+        cur_features,
         options,
         actions,
-        next_observations,
+        next_features,
         dones,
         rewards,
     ):
         with torch.no_grad():
             alpha = self.log_alpha.param.exp()
-        q1_pred = self.critic1(observations, options, actions).flatten()
-        q2_pred = self.critic2(observations, options, actions).flatten()
+        q1_pred = self.critic1(cur_features, options, actions).flatten()
+        q2_pred = self.critic2(cur_features, options, actions).flatten()
         
-        next_action_dists, *_ = self.forward(next_observations, options)
+        next_action_dists, *_ = self.forward(next_features, options)
         if hasattr(next_action_dists, 'rsample_with_pre_tanh_value'):
             new_next_actions_pre_tanh, new_next_actions = next_action_dists.rsample_with_pre_tanh_value()
             new_next_action_log_probs = next_action_dists.log_prob(new_next_actions, pre_tanh_value=new_next_actions_pre_tanh)
@@ -144,8 +168,8 @@ class SAC(Policy):
             new_next_action_log_probs = next_action_dists.log_prob(new_next_actions)
 
         target_q_values = torch.min(
-            self.target_critic1(next_observations, options, new_next_actions).flatten(),
-            self.target_critic2(next_observations, options, new_next_actions).flatten(),
+            self.target_critic1(next_features, options, new_next_actions).flatten(),
+            self.target_critic2(next_features, options, new_next_actions).flatten(),
         )
         target_q_values = target_q_values - alpha * new_next_action_log_probs
         target_q_values = target_q_values * self.discount
@@ -165,12 +189,12 @@ class SAC(Policy):
         }
         
     def _update_loss_sacp(
-            self, observations, options, 
+            self, cur_features, options, 
     ):
         with torch.no_grad():
             alpha = self.log_alpha.param.exp()
 
-        action_dists, *_ = self.forward(observations, options)
+        action_dists, *_ = self.forward(cur_features, options)
         if hasattr(action_dists, 'rsample_with_pre_tanh_value'):
             new_actions_pre_tanh, new_actions = action_dists.rsample_with_pre_tanh_value()
             new_action_log_probs = action_dists.log_prob(new_actions, pre_tanh_value=new_actions_pre_tanh)
@@ -179,8 +203,8 @@ class SAC(Policy):
             new_actions = self._clip_actions(new_actions)
             new_action_log_probs = action_dists.log_prob(new_actions)
         min_q_values = torch.min(
-            self.critic1(observations, options, new_actions).flatten(),
-            self.critic2(observations, options, new_actions).flatten(),
+            self.critic1(cur_features, options, new_actions).flatten(),
+            self.critic2(cur_features, options, new_actions).flatten(),
         )
 
         loss_sacp = (alpha * new_action_log_probs - min_q_values).mean()

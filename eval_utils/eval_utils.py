@@ -57,6 +57,16 @@ def get_option_colors(options, color_range=4):
 
     return option_colors
 
+def monte_carlo_value_difference(rewards, gamma):
+    # Returns monte-carlo estimate of discounted sum of rewards
+    # between current and last state of supplied trajectories
+    value_difference = np.zeros(rewards.shape)
+    # Omit last reward as it is for performing action from last state.
+    for i in reversed(range(rewards.shape[1] - 1)):
+        value_difference[:, :i] = value_difference[:, :i] * gamma
+        value_difference[:, :i] = value_difference[:, :i] + rewards[:, :i]
+    return value_difference
+
 class StatisticsCalculator():
     def __init__(self, name):
         self.name = name

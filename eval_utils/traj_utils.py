@@ -56,10 +56,13 @@ def draw_2d_gaussians(means, stddevs, colors, ax, fill=False, alpha=0.8, use_ada
     else:
         ax.axis(plot_axis)
 
-def calc_eval_metrics(coordinates, discretize_continuous_fn):
+def calc_eval_metrics(coordinates, discretize_continuous_fn, prefix = None):
     eval_metrics = {}
     uniq_coords = np.unique(discretize_continuous_fn(coordinates).reshape(-1, coordinates.shape[-1]).astype(np.int32), axis=0)
+    key = 'NumUniqueCoords'
+    if prefix is not None:
+        key = f'{prefix}_{key}'
     eval_metrics.update({
-        'MjNumUniqueCoords': len(uniq_coords),
+        key: len(uniq_coords),
     })
     return eval_metrics
