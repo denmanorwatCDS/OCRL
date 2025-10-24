@@ -85,10 +85,10 @@ def main(config):
         pretrained_path = '/'.join([PATH_TO_TRAIN_RL_DOT_PY, 'models', 
                                     f'{config.env.obs_size}x{config.env.obs_size}', config.pretrained_model.env,
                                     config.ocr.name + '_' + config.pretrained_model.save_name + ';step:' + config.pretrained_model.step])
-        if config.pretrained_model.save_name != 'orig':
+        if not ('orig' in config.pretrained_model.save_name):
             oc_model.load_state_dict(torch.load(pretrained_path, weights_only = True))
         else:
-            oc_model.load_jaesik_model(torch.load(pretrained_path, map_location='cuda:0'))
+            oc_model.load_jaesik_model(torch.load(pretrained_path, map_location = 'cuda:0'))
 
 
     oc_model = oc_model.to('cuda')

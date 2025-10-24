@@ -1,7 +1,8 @@
 import hydra
 import torch
 import omegaconf
-import os, sys
+import os, sys, random
+import random
 
 from comet_ml import Experiment
 from torch.utils.data import DataLoader
@@ -12,9 +13,10 @@ from data_utils.H5_dataset import H5Dataset
 from utils.eval_tools import evaluate_ocr_model
 from utils.train_tools import get_model_name, get_uint_to_float
 
+import numpy as np
+
 @hydra.main(config_path="configs/", config_name="train_ocr")
 def main(config):
-    
     PATH_TO_PRETRAIN_ENCODERS_DOT_PY = sys.path[0]
     path_to_target_dataset = '/'.join([config.dataset.root_path, 
                                        f"{config.dataset.obs_size}x{config.dataset.obs_size}", 
