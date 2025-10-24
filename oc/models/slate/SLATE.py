@@ -103,15 +103,15 @@ class SLATE(OC_model):
                      self._slotproj.named_parameters())
     
     def get_dvae_params(self):
-        return chain(self._dvae.named_parameters(),
-                     self._dict.named_parameters())
+        return chain(self._dvae.named_parameters())
 
     def get_decoder_params(self):
         return chain(
             self._z_pos.named_parameters(),
             self._bos_token.named_parameters(),
             self._tfdec.named_parameters(),
-            self._out.named_parameters())
+            self._out.named_parameters(),
+            self._dict.named_parameters())
     
     def get_grouped_parameters(self):
         return {'encoder': self.get_enc_params(),

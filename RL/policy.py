@@ -73,6 +73,7 @@ class Policy(nn.Module):
     # TODO check logit shape. It must be of the shape: batch x actions.
     def get_action_logprob_entropy(self, slots, action = None):
         dist = self.get_action_distribution(slots)
+        detached_dist = self.get_action_distribution(slots.detach())
         if action is None:
             action = dist.sample()
         elif not (action is None) and not self.is_action_discrete:
@@ -82,10 +83,10 @@ class Policy(nn.Module):
         # meaning in discrete case it must return batch of logprobs and batch of entropies
         if self.is_action_discrete:
             return action.squeeze(dim = -2), dist.log_prob(action).squeeze(dim = -2),\
-                dist.entropy().squeeze(dim = -2)
+                detached_dist.entropy().squeeze(dim = -2)
         else:
             return action.squeeze(dim = -2), dist.log_prob(action).sum(-1).squeeze(dim = -2),\
-                dist.entropy().sum(-1).squeeze(dim = -2)
+                detached_dist.entropy().sum(-1).squeeze(dim = -2)
         
     def get_paramwise_lr(self):
         return {'policy': None}
