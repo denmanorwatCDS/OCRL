@@ -251,7 +251,9 @@ class SLATE(OC_model):
     def load_jaesik_model(self, state_dict):
         # Loads original slate from OCRL repository
         unique_modules = {}
-        for key, val in state_dict['ocr_module_state_dict'].items():
+        if 'ocr_module_state_dict' in state_dict.keys():
+            state_dict = state_dict['ocr_module_state_dict']
+        for key, val in state_dict.items():
             module_name, submodule_name = key.split('.')[0], '.'.join(key.split('.')[1:])
             if not (module_name in unique_modules.keys()):
                 unique_modules[module_name] = OrderedDict()
