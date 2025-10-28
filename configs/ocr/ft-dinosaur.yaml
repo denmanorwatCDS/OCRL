@@ -66,6 +66,7 @@ optimizer:
       type: cosine
       warmup_steps: 20_000
       decay_steps: 1_300_000
+      parallel: False
 
   slot_optimizer:
     lr: 0.0003
@@ -75,6 +76,7 @@ optimizer:
       type: cosine
       warmup_steps: 20_000
       decay_steps: 1_300_000
+      parallel: False
   
   encoder_optimizer:
     lr: 0.0003
@@ -84,6 +86,7 @@ optimizer:
       type: cosine
       warmup_steps: 20_000
       decay_steps: 1_300_000
+      parallel: False
 
 decoder:
   inp_dim: 64 # must coincide with slotattr.slot_size

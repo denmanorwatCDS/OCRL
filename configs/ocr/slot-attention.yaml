@@ -45,6 +45,7 @@ optimizer:
       warmup_steps: 30_000
       decay_rate: 0.5
       decay_steps: 250_000
+      parallel: True
 
   slot_optimizer:
     lr: 1e-4
@@ -54,6 +55,7 @@ optimizer:
       warmup_steps: 30_000
       decay_rate: 0.5
       decay_steps: 250_000
+      parallel: True
   
   decoder_optimizer:
     lr: 1e-4
@@ -63,3 +65,4 @@ optimizer:
       warmup_steps: 30_000
       decay_rate: 0.5
       decay_steps: 250_000
+      parallel: True

@@ -82,13 +82,15 @@ class OCOptimizer():
                 if scheduler_kwargs[name + '_optimizer']['type'] == 'cosine':
                     schedule_fns[name] = functools.partial(cosine_decay_with_warmup,
                         warmup_steps = scheduler_kwargs[name + '_optimizer']['warmup_steps'], 
-                        decay_steps = scheduler_kwargs[name + '_optimizer']['decay_steps'])
+                        decay_steps = scheduler_kwargs[name + '_optimizer']['decay_steps'],
+                        parallel = scheduler_kwargs[name + '_optimizer']['parallel'])
                     
                 elif scheduler_kwargs[name + '_optimizer']['type'] == 'exp':
                     schedule_fns[name] = functools.partial(exponential_decay_with_warmup,
                         warmup_steps = scheduler_kwargs[name + '_optimizer']['warmup_steps'], 
                         decay_steps = scheduler_kwargs[name + '_optimizer']['decay_steps'],
-                        decay_rate = scheduler_kwargs[name + '_optimizer']['decay_rate'])
+                        decay_rate = scheduler_kwargs[name + '_optimizer']['decay_rate'],
+                        parallel = scheduler_kwargs[name + '_optimizer']['parallel'])
         
         self.lr_lambdas = []
         # We suppose that optimizers are identical, thus schedulers must be also identical
