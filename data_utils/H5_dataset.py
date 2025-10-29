@@ -18,7 +18,8 @@ class H5Dataset(Dataset):
                 self._data['obss'] = f['TrainingSet']['obss'][:10_000]
             else:
                 self._data = f['TrainingSet']
-            self.future_step_proba = self.precalculate_data()
+            if self.use_future:
+                self.future_step_proba = self.precalculate_data()
         else:
             self._data = f['ValidationSet']
             if 'masks' in self._data.keys():
