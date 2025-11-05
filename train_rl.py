@@ -162,7 +162,7 @@ def main(config):
             mets = add_prefix(mets, 'oc')
             if not config.sb3.train_feature_extractor:
                 oc_loss = 0
-            loss = pg_loss + config.sb3.ent_coef * entropy_loss + config.sb3.vf_coef * v_loss + oc_loss
+            loss = pg_loss + config.sb3.ent_coef * entropy_loss + config.sb3.vf_coef * v_loss
             optimizer.optimizer_zero_grad()
             loss.backward()
             metrics.update(optimizer.optimizer_step('rl'))
