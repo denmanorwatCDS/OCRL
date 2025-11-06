@@ -9,7 +9,7 @@ vf_coef: 0.5
 target_kl: null
 clip_range: 0.2
 bc_mult: 1.
-ppg_freq: 8
+ppg_freq: 16
 ppg_epochs: 8
 rollout_epochs: 10
 pretrain_steps: 30_000
