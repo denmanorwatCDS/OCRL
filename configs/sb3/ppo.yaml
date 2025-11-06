@@ -1,7 +1,7 @@
 name: 'PPO'
 train_feature_extractor: true
 n_steps: 2048
-batch_size: 64
+batch_size: 32
 ent_coef: 0.0
 gamma: 0.99
 gae_lambda: 0.95
