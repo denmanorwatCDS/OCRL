@@ -112,6 +112,7 @@ def main(config):
                     logs_before_ppg = logs_before_ppg, imgs_before_ppg = imgs_before_ppg,
                     logs_after_ppg = logs_before_ppg, imgs_after_ppg = imgs_before_ppg,
                     curves = {})
+    target_oc_model = deepcopy(oc_model)
     for iteration in range(1, int(config.max_steps + 1) // config.sb3.n_steps):
         oc_model.inference_mode(), agent.inference_mode()
         for step in range(0, config.sb3.n_steps, config.num_envs):
@@ -158,17 +159,20 @@ def main(config):
             pg_loss = torch.max(pg_loss1, pg_loss2).mean()
             v_loss = ((newvalue - batch['return']) ** 2).mean()
             entropy_loss = -entropy.mean()
-            oc_loss, mets = oc_model.get_loss(obs = start_obs, future_obs = future_obs, do_dropout = True)
-            mets = add_prefix(mets, 'oc')
-            if not config.sb3.train_feature_extractor:
-                oc_loss = 0
-            loss = pg_loss + config.sb3.ent_coef * entropy_loss + config.sb3.vf_coef * v_loss
+            alignment_loss = 0
+            if config.sb3.train_feature_extractor:
+                with torch.no_grad():
+                    target_slots = target_oc_model.get_slots(obs = start_obs, training = True)
+                    gt_decoded = target_oc_model.decode_slots(obs = start_obs, slots = target_slots)
+                slots = oc_model.get_slots(obs = start_obs, training = True)
+                decoded = oc_model.decode_slots(obs = start_obs, slots = slots)
+                alignment_loss = oc_model.get_oc_alignment_loss(gt_decoded = gt_decoded, decoded = decoded)
+            loss = pg_loss + config.sb3.ent_coef * entropy_loss + config.sb3.vf_coef * v_loss + alignment_loss
             optimizer.optimizer_zero_grad()
             loss.backward()
             metrics.update(optimizer.optimizer_step('rl'))
-            metrics.update(mets)
             metrics.update({'ppo/value_loss': v_loss.item(), 'ppo/policy_gradient_loss': pg_loss.item(), 
-                            'ppo/entropy_loss': entropy_loss.item(),
+                            'ppo/entropy_loss': entropy_loss.item(), 'ppo/alignment_loss': alignment_loss.item(),
                             'ppo/approx_kl': approx_kl.item(), 'ppo/old_approx_kl': old_approx_kl.item(), 
                             'ppo/clip_fraction': clipfracs})
 
@@ -204,6 +208,7 @@ def main(config):
             oc_model.inference_mode()
             logs_after_ppg, imgs_after_ppg = evaluate_ocr_model(oc_model, val_dataloader)
             oc_model.training_mode()
+            target_oc_model = deepcopy(oc_model)
             log_ppg_results(experiment = experiment, step = global_step, 
                             logs_before_ppg = logs_before_ppg, imgs_before_ppg = imgs_before_ppg,
                             logs_after_ppg = logs_after_ppg, imgs_after_ppg = imgs_after_ppg,

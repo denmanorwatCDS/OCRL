@@ -184,6 +184,22 @@ class SLATE(OC_model):
         total_loss += hung_loss
         return total_loss, mets
     
+    def decode_slots(self, obs, slots):
+        z, z_hard = self._get_z(obs)
+        z_hard = z_hard.permute(0, 2, 3, 1).flatten(start_dim=1, end_dim=2)
+        z_emb = self._dict(z_hard)
+        z_emb = torch.cat(
+                [self._bos_token().expand(obs.shape[0], -1, -1), z_emb], dim=1
+            )
+        z_emb = self._z_pos(z_emb)
+        projected_slots = self._slotproj(slots)
+        decoder_output = self._tfdec(z_emb[:, :-1], projected_slots)
+        pred = self._out(decoder_output)
+        return pred
+    
+    def get_oc_alignment_loss(self, gt_decoded, decoded):
+        return ((gt_decoded - decoded)**2).flatten(start_dim=1).mean()
+    
     def calculate_validation_data(self, obs):
         with torch.no_grad():
             z, z_hard = self._get_z(obs)

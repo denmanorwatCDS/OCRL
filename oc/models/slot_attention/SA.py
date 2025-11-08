@@ -107,6 +107,12 @@ class Slot_Attention(OC_model):
         total_loss = SA_loss + hung_loss
         return total_loss, mets
     
+    def decode_slots(self, obs, slots):
+        return self._dec(slots)[0]
+    
+    def get_oc_alignment_loss(self, gt_decoded, decoded):
+        return ((gt_decoded - decoded)**2).mean()
+    
     def calculate_validation_data(self, obs):
         with torch.no_grad():
             mse = torch.nn.MSELoss(reduction = "mean")
