@@ -9,6 +9,7 @@ from oc.models.utils.dropouts import CnnPatchDropout, FeatureDropout
 from oc.models.utils.slot_attention import SlotAttentionModule
 from oc.models.slate.submodels import dVAE, LearnedPositionalEncoding, TransformerDecoder, gumbel_softmax, cosine_anneal
 from collections import OrderedDict
+from torch.nn import KLDivLoss
 
 # TODO make dict parameters as mixin into classes, not as method implemented in 100500 models
 # TODO change implementation to original SLATE! This pseudoconverter is redundant, and may be even harmfull!
@@ -198,7 +199,10 @@ class SLATE(OC_model):
         return pred
     
     def get_oc_alignment_loss(self, gt_decoded, decoded):
-        return ((gt_decoded - decoded)**2).flatten(start_dim=1).mean()
+        batch_qty, patch_qty, class_qty = gt_decoded.shape
+        gt_decoded, decoded = gt_decoded.reshape(batch_qty*patch_qty, class_qty), decoded.reshape(batch_qty*patch_qty, class_qty)
+        gt_decoded = torch.softmax(gt_decoded, dim = -1)
+        return torch.nn.functional.cross_entropy(decoded, gt_decoded)
     
     def calculate_validation_data(self, obs):
         with torch.no_grad():

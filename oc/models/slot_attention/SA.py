@@ -111,7 +111,7 @@ class Slot_Attention(OC_model):
         return self._dec(slots)[0]
     
     def get_oc_alignment_loss(self, gt_decoded, decoded):
-        return ((gt_decoded - decoded)**2).mean()
+        return ((gt_decoded - decoded)**2).sum()/gt_decoded.shape[0]
     
     def calculate_validation_data(self, obs):
         with torch.no_grad():
