@@ -7,8 +7,8 @@ defaults:
 
 num_workers: 4
 prefetch_factor: 1
-max_steps: 300_000
-timesteps_for_checkpoint: [1, 50_000, 100_000, 150_000, 200_000, 250_000, 300_000]
+max_steps: 305_000
+timesteps_for_checkpoint: [300_000]
 save_name: ???
 
 hydra:
