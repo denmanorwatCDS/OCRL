@@ -159,7 +159,7 @@ def main(config):
             pg_loss = torch.max(pg_loss1, pg_loss2).mean()
             v_loss = ((newvalue - batch['return']) ** 2).mean()
             entropy_loss = -entropy.mean()
-            alignment_loss = torch.Tensor([0])
+            alignment_loss = torch.Tensor([0]).to(device)
             if config.sb3.train_feature_extractor:
                 with torch.no_grad():
                     target_slots = target_oc_model.get_slots(obs = start_obs, training = True)
