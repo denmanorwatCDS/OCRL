@@ -20,7 +20,7 @@ from RL.policy import Policy
 from RL.rollout_buffer import OCRolloutBuffer
 from utils.train_tools import infer_obs_action_shape, make_env, update_curves_, get_uint_to_float, stop_oc_optimizer_
 from data_utils.H5_dataset import H5Dataset
-from utils.eval_tools import calculate_explained_variance, evaluate_ocr_model, get_episodic_metrics, log_ppg_results, add_prefix, Metrics
+from utils.eval_tools import calculate_explained_variance, evaluate_ocr_model, get_episodic_metrics, log_ppg_results, Metrics
 
 @hydra.main(config_path="configs/", config_name="train_rl")
 def main(config):
@@ -30,6 +30,16 @@ def main(config):
         project_name = 'OC_RL',
         workspace = 'denmanorwat'
         )
+    frozen_name = 'Unfrozen' if config.sb3.train_feature_extractor else 'Frozen'
+    slot_name = ':'.join(['slot', config.ocr.slotattr.preinit_type])
+    wd_array = []
+    for key in config.ocr.optimizer.keys():
+        if '_optimizer' in key:
+            wd_array.append(':'.join([key.replace('_optimizer', '') + '_wd', 
+                                      str(config.ocr.optimizer[key]['weight_decay'])]))
+    dropout_name = ':'.join(['drop_proba', str(config.ocr.feature_dropout.feature_dropout_proba)])
+    name = ' '.join([config.env.env, config.ocr.name, frozen_name, slot_name, *wd_array, dropout_name])
+    experiment.set_name(name)
     dataset_path = '/'.join([config.dataset_root_path, 
                              f"{config.env.obs_size}x{config.env.obs_size}", 
                              config.env.precollected_dataset, 'dataset', 'data.hdf5'])
