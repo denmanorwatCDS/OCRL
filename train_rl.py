@@ -40,7 +40,6 @@ def main(config):
     dropout_name = ':'.join(['drop_proba', str(config.ocr.feature_dropout.feature_dropout_proba)])
     name = ' '.join([config.env.env, config.ocr.name, frozen_name, slot_name, *wd_array, dropout_name])
     experiment.set_name(name)
-    experiment.add_tag('Critic only')
     dataset_path = '/'.join([config.dataset_root_path, 
                              f"{config.env.obs_size}x{config.env.obs_size}", 
                              config.env.precollected_dataset, 'dataset', 'data.hdf5'])
@@ -215,8 +214,6 @@ def main(config):
                 optimizer.optimizer_zero_grad()
                 total_loss.backward()
                 metrics.update(optimizer.optimizer_step('oc'))
-            if config.sb3.train_feature_extractor:
-                optimizer.reset_optimizers()
             oc_model.inference_mode()
             logs_after_ppg, imgs_after_ppg = evaluate_ocr_model(oc_model, val_dataloader)
             oc_model.training_mode()
