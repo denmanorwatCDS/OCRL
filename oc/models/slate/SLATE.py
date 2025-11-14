@@ -40,7 +40,7 @@ class SLATE(OC_model):
         self._tau_start = ocr_config.tau_start
         self._tau_final = ocr_config.tau_final
         self._tau_steps = ocr_config.tau_steps
-        self._tau = 1.0
+        self._tau = ocr_config.tau_start
         self.num_slots = num_slots = ocr_config.slotattr.num_slots
         self.rep_dim = slot_size
 
