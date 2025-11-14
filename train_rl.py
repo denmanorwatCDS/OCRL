@@ -40,6 +40,7 @@ def main(config):
     dropout_name = ':'.join(['drop_proba', str(config.ocr.feature_dropout.feature_dropout_proba)])
     name = ' '.join([config.env.env, config.ocr.name, frozen_name, slot_name, *wd_array, dropout_name])
     experiment.set_name(name)
+    experiment.add_tag('Critic only')
     dataset_path = '/'.join([config.dataset_root_path, 
                              f"{config.env.obs_size}x{config.env.obs_size}", 
                              config.env.precollected_dataset, 'dataset', 'data.hdf5'])
