@@ -72,8 +72,9 @@ class Policy(nn.Module):
     
     # TODO check logit shape. It must be of the shape: batch x actions.
     def get_action_logprob_entropy(self, slots, action = None):
+        slots = slots.detach()
         dist = self.get_action_distribution(slots)
-        detached_dist = self.get_action_distribution(slots.detach())
+        detached_dist = self.get_action_distribution(slots)
         if action is None:
             action = dist.sample()
         elif not (action is None) and not self.is_action_discrete:
