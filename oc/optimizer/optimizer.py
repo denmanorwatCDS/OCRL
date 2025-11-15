@@ -57,6 +57,8 @@ class OCOptimizer():
         schedule_fns, optimizer_kwargs = {}, []
         for module_name in named_params_by_module.keys():
             optim_key = '_'.join([module_name, 'optimizer'])
+            if not (optim_key in modules_optim_kwargs.keys()):
+                continue
             # module_name, _ = optim_key.split('_')
             schedule_fns[module_name] = constant_lr
 
