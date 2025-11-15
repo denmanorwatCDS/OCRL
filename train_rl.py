@@ -100,7 +100,6 @@ def main(config):
         else:
             oc_model.load_jaesik_model(torch.load(pretrained_path, map_location = 'cuda:0'))
 
-
     oc_model = oc_model.to('cuda')
     ocr_optimizer, policy_optimizer = omegaconf.OmegaConf.to_container(config.ocr.optimizer), \
         omegaconf.OmegaConf.to_container(config.sb3.optimizer)
