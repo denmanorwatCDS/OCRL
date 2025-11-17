@@ -70,6 +70,7 @@ def main(config):
     model = model.to('cuda')
     optimizer = OCOptimizer(omegaconf.OmegaConf.to_container(config.ocr.optimizer), oc_model = model, policy = None)
     i = 0
+    best_loss = 1e9
     model.training_mode()
     while i < config.max_steps:
         for batch, future_batch in train_dataloader:
@@ -82,17 +83,20 @@ def main(config):
             if i % 100 == 0:
                 experiment.log_metrics(mets, step = i)
             
-            if (i % 1_000 == 0):
+            if (i % 5_000 == 0):
                 model.inference_mode()
-                logs, imgs = evaluate_ocr_model(model = model, val_dataloader = val_dataloader)
+                if (i % 25_000 == 0):
+                    logs, imgs = evaluate_ocr_model(model = model, val_dataloader = val_dataloader, full_eval = True)
+                else:
+                    logs, imgs = evaluate_ocr_model(model = model, val_dataloader = val_dataloader)
                 experiment.log_metrics({f'val/{key}': logs[key] for key in logs.keys()}, step = i)
                 for key in imgs.keys():
                     experiment.log_image(image_data = imgs[key], name = f'val/{key}', 
                                          image_minmax = (0, 255), step = i)
                 model.training_mode()
-            
-            if i in config.timesteps_for_checkpoint:
-                torch.save(model.state_dict(), model_save_path + f';step:{i}')
+                if best_loss > logs['total_loss']:
+                    best_loss = logs['total_loss']
+                    torch.save(model.state_dict(), model_save_path + f';step:{i}')
                 
             i += 1
             if i > config.max_steps:

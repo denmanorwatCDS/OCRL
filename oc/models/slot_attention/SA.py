@@ -122,7 +122,7 @@ class Slot_Attention(OC_model):
             
             recon, dec_attns = self._dec(slots)
             
-            SA_loss = mse(recon, obs)
+            SA_loss = ((obs - recon) ** 2).sum() / obs.shape[0]
             enc_masked_imgs, enc_masks = self.convert_attns_to_masks(obs, enc_attns)
             dec_masked_imgs, dec_masks = self.convert_attns_to_masks(obs, dec_attns)
 
@@ -131,7 +131,7 @@ class Slot_Attention(OC_model):
             
             drop_recon, drop_dec_attns = self._dec(drop_slots)
 
-            drop_SA_loss = mse(drop_recon, obs)
+            drop_SA_loss = ((drop_recon - recon) ** 2).sum() / obs.shape[0]
             drop_enc_masked_imgs, drop_enc_masks = self.convert_attns_to_masks(obs, drop_enc_attns)
             drop_dec_masked_imgs, drop_dec_masks = self.convert_attns_to_masks(obs, drop_dec_attns) 
 

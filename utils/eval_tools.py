@@ -78,12 +78,10 @@ def calculate_ari(true_masks, pred_masks, foreground=False):
 
     return aris
 
-def evaluate_ocr_model(model, val_dataloader):
+def evaluate_ocr_model(model, val_dataloader, full_eval = False):
     # OCR logging
     for j, batch in enumerate(val_dataloader):
         mets = model.calculate_validation_data(batch['obss'].cuda())
-        if j > 10:
-            break
         if j == 0:
             precalc_data, ari_dict, recon_images, attn_images = {}, {}, [], {}
             for key in mets['masks'].keys():
@@ -107,7 +105,7 @@ def evaluate_ocr_model(model, val_dataloader):
                         attn_images['true_masks'] = []
                     attn_images['true_masks'].append(true_masks * 255)
 
-        if 'masks' in batch.keys():
+        if ('masks' in batch.keys()) and full_eval:
             orig_masks = batch['masks'].to(torch.uint8)
             fg_masks = (1 - orig_masks[:, -2: -1])
             for name, mask in mets['masks'].items():
@@ -118,7 +116,7 @@ def evaluate_ocr_model(model, val_dataloader):
                                       'fg-ari': [calculate_ari(orig_masks, fg_mask, foreground = True)]}
                 else:
                     ari_dict[name]['ari'].append(calculate_ari(orig_masks, mask))
-                    ari_dict[name]['fg-ari'].append(calculate_ari(orig_masks, mask))
+                    ari_dict[name]['fg-ari'].append(calculate_ari(orig_masks, mask, foreground=True))
 
         for key in mets.keys():
             if key not in ['masks', 'masked_imgs', 'reconstructions']:
