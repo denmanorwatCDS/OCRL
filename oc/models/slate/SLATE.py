@@ -208,7 +208,7 @@ class SLATE(OC_model):
         with torch.no_grad():
             z, z_hard = self._get_z(obs)
             dvae_recon = self._dvae.decode(z)
-            dvae_mse = ((obs - dvae_recon) ** 2).sum() / obs.shape[0]
+            dvae_mse = mse_loss(dvae_recon, obs)
 
             # SLATE component of the loss
             drop_slots, drop_enc_attns = self._get_slots(obs, do_dropout = True, training = False)
