@@ -159,7 +159,7 @@ class SLATE(OC_model):
         projected_slots = self._slotproj(slots)
         decoder_output = self._tfdec(z_emb[:, :-1], projected_slots)
         pred = self._out(decoder_output)
-        cross_entropy = cross_entropy_loss(pred, z_hard)
+        cross_entropy = cross_entropy_loss(pred.flatten(end_dim=1), z_hard.flatten(end_dim=1))
         return cross_entropy
     
     def get_loss(self, obs, future_obs, do_dropout):
