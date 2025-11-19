@@ -83,9 +83,9 @@ def main(config):
             if i % 100 == 0:
                 experiment.log_metrics(mets, step = i)
             
-            if (i % 5_000 == 0):
+            if (i % 10_000 == 0):
                 model.inference_mode()
-                if (i % 25_000 == 0):
+                if (i % 30_000 == 0):
                     logs, imgs = evaluate_ocr_model(model = model, val_dataloader = val_dataloader, full_eval = True)
                 else:
                     logs, imgs = evaluate_ocr_model(model = model, val_dataloader = val_dataloader)

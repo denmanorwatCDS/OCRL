@@ -82,7 +82,7 @@ def evaluate_ocr_model(model, val_dataloader, full_eval = False):
     # OCR logging
     for j, batch in enumerate(val_dataloader):
         mets = model.calculate_validation_data(batch['obss'].cuda())
-        if j > 200:
+        if j > 150:
             break
         if j == 0:
             precalc_data, ari_dict, recon_images, attn_images = {}, {}, [], {}
