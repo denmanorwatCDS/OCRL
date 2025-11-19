@@ -9,7 +9,8 @@ from oc.models.utils.dropouts import CnnPatchDropout, FeatureDropout
 from oc.models.utils.slot_attention import SlotAttentionModule
 from oc.models.slate.submodels import dVAE, LearnedPositionalEncoding, TransformerDecoder, gumbel_softmax, cosine_anneal
 from collections import OrderedDict
-from torch.nn import KLDivLoss
+from torch.nn.functional import mse_loss
+from torch.nn.functional import cross_entropy as cross_entropy_loss
 
 # TODO make dict parameters as mixin into classes, not as method implemented in 100500 models
 # TODO change implementation to original SLATE! This pseudoconverter is redundant, and may be even harmfull!
@@ -158,15 +159,14 @@ class SLATE(OC_model):
         projected_slots = self._slotproj(slots)
         decoder_output = self._tfdec(z_emb[:, :-1], projected_slots)
         pred = self._out(decoder_output)
-        cross_entropy = (
-            -(z_hard * torch.log_softmax(pred, dim=-1)).flatten(start_dim=1).sum(-1).mean())
+        cross_entropy = cross_entropy_loss(pred, z_hard)
         return cross_entropy
     
     def get_loss(self, obs, future_obs, do_dropout):
         # DVAE component of the loss
         z, z_hard = self._get_z(obs)
         dvae_recon = self._dvae.decode(z)
-        dvae_mse = ((obs - dvae_recon) ** 2).sum() / obs.shape[0]
+        dvae_mse = mse_loss(dvae_recon, obs)
 
         # SLATE component of the loss
         slots, _ = self._get_slots(obs, do_dropout = do_dropout, training = True)
@@ -202,7 +202,7 @@ class SLATE(OC_model):
         batch_qty, patch_qty, class_qty = gt_decoded.shape
         gt_decoded, decoded = gt_decoded.reshape(batch_qty*patch_qty, class_qty), decoded.reshape(batch_qty*patch_qty, class_qty)
         gt_decoded = torch.softmax(gt_decoded, dim = -1)
-        return torch.nn.functional.cross_entropy(decoded, gt_decoded)
+        return cross_entropy_loss(decoded, gt_decoded)
     
     def calculate_validation_data(self, obs):
         with torch.no_grad():

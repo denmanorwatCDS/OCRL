@@ -10,6 +10,7 @@ from oc.models.utils.losses import hungarian_loss
 from itertools import chain
 from oc.models.utils.networks import linear
 from collections import OrderedDict
+from torch.nn.functional import mse_loss
 
 # TODO make dict parameters as mixin into classes, not as method implemented in 100500 models
 class Slot_Attention(OC_model):
@@ -96,7 +97,7 @@ class Slot_Attention(OC_model):
         slots, _ = self._get_slots(obs, do_dropout = do_dropout, training = True)
         recon, _ = self._dec(slots)
         hung_loss = 0
-        SA_loss = ((obs - recon) ** 2).sum() / obs.shape[0]
+        SA_loss = mse_loss(obs, recon)
         mets = {'total_loss': SA_loss.detach().cpu(),
                 'SA_loss': SA_loss.detach().cpu()}
         if self.use_hungarian_loss:
@@ -111,18 +112,16 @@ class Slot_Attention(OC_model):
         return self._dec(slots)[0]
     
     def get_oc_alignment_loss(self, gt_decoded, decoded):
-        return ((gt_decoded - decoded)**2).sum()/gt_decoded.shape[0]
+        return mse_loss(decoded, gt_decoded)
     
     def calculate_validation_data(self, obs):
         with torch.no_grad():
-            mse = torch.nn.MSELoss(reduction = "mean")
-
             slots, enc_attns = self._get_slots(obs, do_dropout = False, training = False)
             enc_attns = enc_attns.transpose(-1, -2)
             
             recon, dec_attns = self._dec(slots)
             
-            SA_loss = ((obs - recon) ** 2).sum() / obs.shape[0]
+            SA_loss = mse_loss(recon, obs)
             enc_masked_imgs, enc_masks = self.convert_attns_to_masks(obs, enc_attns)
             dec_masked_imgs, dec_masks = self.convert_attns_to_masks(obs, dec_attns)
 
@@ -131,7 +130,7 @@ class Slot_Attention(OC_model):
             
             drop_recon, drop_dec_attns = self._dec(drop_slots)
 
-            drop_SA_loss = ((drop_recon - recon) ** 2).sum() / obs.shape[0]
+            drop_SA_loss = mse_loss(drop_recon, obs)
             drop_enc_masked_imgs, drop_enc_masks = self.convert_attns_to_masks(obs, drop_enc_attns)
             drop_dec_masked_imgs, drop_dec_masks = self.convert_attns_to_masks(obs, drop_dec_attns) 
 
