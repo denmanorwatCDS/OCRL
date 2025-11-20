@@ -96,7 +96,7 @@ def main(config):
                 model.training_mode()
                 if best_loss > logs['total_loss']:
                     best_loss, best_model, best_idx = logs['total_loss'], model.state_dict(), i
-                    if i >= config.max_steps - 10_000:
+                    if i >= config.max_steps - 30_000:
                         torch.save(best_model, model_save_path + f';step:{best_idx}')
                 
             i += 1
