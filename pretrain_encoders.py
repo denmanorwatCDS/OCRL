@@ -70,7 +70,7 @@ def main(config):
     model = model.to('cuda')
     optimizer = OCOptimizer(omegaconf.OmegaConf.to_container(config.ocr.optimizer), oc_model = model, policy = None)
     i = 0
-    best_loss, best_model, best_idx = 1e9, None, None
+    best_loss, best_model, best_idx, has_saved = 1e9, None, None, False
     model.training_mode()
     while i < config.max_steps:
         for batch, future_batch in train_dataloader:
@@ -98,6 +98,10 @@ def main(config):
                     best_loss, best_model, best_idx = logs['total_loss'], model.state_dict(), i
                     if i >= config.max_steps - 30_000:
                         torch.save(best_model, model_save_path + f';step:{best_idx}')
+                
+                if (i >= config.max_steps - 30_000) and not has_saved:
+                    has_saved = True
+                    torch.save(best_model, model_save_path + f';step:{best_idx}')
                 
             i += 1
             if i > config.max_steps:
