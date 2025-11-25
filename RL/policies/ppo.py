@@ -45,7 +45,7 @@ class PPO(Policy):
     def build_optimizers(self, actor_lr, critic_lr, pooler_lr,
                                actor_wd, critic_wd, pooler_wd,):
         self._optimizers = {'actor': AdamW(params = self.actor.parameters(), lr = actor_lr, weight_decay = actor_wd),
-                           'critic': AdamW(params = self.critic1.parameters(), lr = critic_lr, weight_decay = critic_wd)}
+                            'critic': AdamW(params = self.critic1.parameters(), lr = critic_lr, weight_decay = critic_wd)}
         if self.is_pooler_trainable:
             self._optimizers['pooler'] = AdamW(params = self.pooler.parameters(), lr = pooler_lr, weight_decay = pooler_wd)
 

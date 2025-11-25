@@ -175,7 +175,8 @@ def run():
     replay_buffer = PathBuffer(capacity_in_transitions = int(config.replay_buffer.common.max_transitions), 
                                batch_size = config.replay_buffer.common.batch_size, pixel_keys = {}, 
                                discount = config.replay_buffer.common.discount, 
-                               gae_lambda = config.replay_buffer.discount, seed = config.globals.seed)
+                               gae_lambda = config.replay_buffer.discount, seed = config.globals.seed,)
+                               #path_to_perfect_buffer = '/home/denis/Work/METRA_simplified/perfect_buffer.pickle')
 
     metra = METRA(obs_length = env.observation_space.shape[1], pooler_config = config.skill.slot_pooler, 
                   traj_encoder_config = config.skill.trajectory_encoder, dist_predictor_config = None,
@@ -267,7 +268,7 @@ def train_cycle(trainer_config, agent, skill_model, replay_buffer, make_env_fn, 
         replay_buffer.update_replay_buffer(trajs)
         if (replay_buffer.n_transitions_stored < trainer_config.transitions_before_training):
             continue
-
+        
         agent.train()
         skill_stats = StatisticsCalculator('skill')
         policy_stats = StatisticsCalculator('policy')
@@ -305,7 +306,7 @@ def train_cycle(trainer_config, agent, skill_model, replay_buffer, make_env_fn, 
                     if ppo_log is None:
                         break
                     policy_stats.save_iter(ppo_log)
-
+        
         if (prev_cur_step // trainer_config.log_frequency) < (cur_step // trainer_config.log_frequency):
             comet_logger.log_metrics(skill_stats.pop_statistics(), step = cur_step)
             comet_logger.log_metrics(policy_stats.pop_statistics(), step = cur_step)
@@ -431,10 +432,11 @@ def eval_metrics(make_env_fn, agent, skill_model, num_random_trajectories, traj_
                                        obj_idxs = option_trajectories[obj_idx]['obj_idxs'])
 
         mc_value_differences = monte_carlo_value_difference(rewards, gamma = gamma)
-        predicted_value_differences = values - values[:, -2:-1].repeat(values.shape[1], axis = 1) *\
+        predicted_value_differences = values - values[:, -2: -1].repeat(values.shape[1], axis = 1) *\
             (np.fliplr(np.cumprod(np.ones(values.shape) * gamma, axis = 1)) / gamma)
         mets.update({f'Truncated_returns№{obj_idx}': np.mean(mc_value_differences)})
         mets.update({f'Predicted_truncated_returns№{obj_idx}': np.mean(predicted_value_differences)})
+        mets.update({f'Values_№{obj_idx}': np.mean(values)})
         mets.update({f'Mean_error№{obj_idx}': np.mean(mc_value_differences - predicted_value_differences)})
         mets.update({f'Mean_absolute_error№{obj_idx}': np.mean(np.abs(mc_value_differences - predicted_value_differences))})
     mets = {f'val/{key}': val for key, val in mets.items()}

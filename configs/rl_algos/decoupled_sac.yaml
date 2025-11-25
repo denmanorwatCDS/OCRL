@@ -97,13 +97,13 @@ replay_buffer:
 
 trainer_args:
   n_parallel: 4
-  traj_batch_size: 64
+  traj_batch_size: 8
   skills_per_trajectory: 1
   n_epochs: 100_000
   trans_optimization_epochs: 200
   skill_optimization_epochs: null
   policy_optimization_mult: null
-  max_path_length: 25
+  max_path_length: 50
   transitions_before_training: 10_000
   log_frequency: 50_000
   eval_frequency: 250_000

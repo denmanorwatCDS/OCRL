@@ -7,7 +7,7 @@ from utils.distributions.tanh import TanhNormal
 class Policy(torch.nn.Module):
     def __init__(self,
                  name, device,
-                 obs_length, task_length, action_length, account_for_action,
+                 feature_len, action_length, account_for_action,
                  *,
                  actor_config,
                  critic_config,
@@ -15,12 +15,12 @@ class Policy(torch.nn.Module):
                  force_use_mode_actions=False,
                  ):
         self.name = name
-        self.actor = get_distribution_network(name = actor_config.distribution_name, obs_length = obs_length, 
-                                              task_length = task_length, output_dim = action_length,
+        self.actor = get_distribution_network(name = actor_config.distribution_name, feature_length = feature_len, 
+                                              output_dim = action_length,
                                               distribution_config = actor_config.distribution).to(device)
-        self.critic1 = ReturnPredictor(obs_length = obs_length, task_length = task_length, action_length = action_length, 
+        self.critic1 = ReturnPredictor(feature_length=feature_len, action_length = action_length, 
                                       account_for_action = account_for_action, mlp_config = critic_config.mlp).to(device)
-        self.critic2 = ReturnPredictor(obs_length = obs_length, task_length = task_length, action_length = action_length, 
+        self.critic2 = ReturnPredictor(feature_length=feature_len, action_length = action_length, 
                                       account_for_action = account_for_action, mlp_config = critic_config.mlp).to(device)
         self.device = device
         self._clip_action = clip_action
@@ -33,8 +33,8 @@ class Policy(torch.nn.Module):
             tasks = torch.as_tensor(tasks).to(next(self.parameters()).device)
         return observations, tasks
     
-    def forward(self, single_features, tasks):
-        dist = self.actor(single_features, tasks)
+    def forward(self, single_features):
+        dist = self.actor(single_features)
         try:
             ret_mean = dist.mean
             ret_log_std = (dist.variance.sqrt()).log()
@@ -49,21 +49,21 @@ class Policy(torch.nn.Module):
 
         return dist, info
     
-    def forward_mode(self, single_features, tasks):
-        samples = self.actor.forward_mode(single_features, tasks)
+    def forward_mode(self, single_features):
+        samples = self.actor.forward_mode(single_features)
         return samples, dict()
 
-    def get_mode_actions(self, single_features, tasks):
+    def get_mode_actions(self, single_features):
         with torch.no_grad():
-            samples, info = self.forward_mode(single_features, tasks)
+            samples, info = self.forward_mode(single_features)
             return samples.cpu().numpy(), {
                 k: v.detach().cpu().numpy()
                 for (k, v) in info.items()
             }
 
-    def get_sample_actions(self, single_features, tasks):
+    def get_sample_actions(self, single_features):
         with torch.no_grad():
-            dist, info = self.forward(single_features, tasks)
+            dist, info = self.forward(single_features)
             if isinstance(dist, TanhNormal):
                 pre_tanh_values, actions = dist.rsample_with_pre_tanh_value()
                 log_probs = dist.log_prob(actions, pre_tanh_values)
@@ -88,11 +88,11 @@ class Policy(torch.nn.Module):
     def get_actions(self, observations, tasks, obj_idxs):
         observations, obj_idxs = torch.from_numpy(observations).to(self.device), torch.from_numpy(obj_idxs).to(self.device)
         tasks = torch.from_numpy(tasks).to(self.device)
-        features = self.pooler(observations, obj_idxs)
+        features = self.pooler(observations, tasks, obj_idxs)
         if self._force_use_mode_actions:
-            actions, info = self.get_mode_actions(features, tasks)
+            actions, info = self.get_mode_actions(features)
         else:
-            actions, info = self.get_sample_actions(features, tasks)
+            actions, info = self.get_sample_actions(features)
         if self._clip_action:
             epsilon = 1e-6
             actions = np.clip(
@@ -102,7 +102,7 @@ class Policy(torch.nn.Module):
             )
         return actions, info
         
-    def get_logprob_and_entropy(self, single_features, tasks, actions, pre_tanh_actions):
-        dist, info = self.forward(single_features = single_features, tasks = tasks)
+    def get_logprob_and_entropy(self, single_features, actions, pre_tanh_actions):
+        dist, info = self.forward(single_features = single_features)
         log_probs, entropy = dist.log_prob(value = actions, pre_tanh_value = pre_tanh_actions), dist.entropy()
         return np.squeeze(log_probs), entropy, info

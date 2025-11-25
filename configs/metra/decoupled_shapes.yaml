@@ -1,5 +1,6 @@
 env:
   name: "decoupled_shapes"
+  normalizer_type: 'shapes'
   env_kwargs: null
 
 trainer_args:
@@ -7,7 +8,7 @@ trainer_args:
 
 replay_buffer:
   common:
-    max_transitions: 1000000
+    max_transitions: 4000000
 
 skill:
   name: "metra"

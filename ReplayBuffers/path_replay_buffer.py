@@ -2,6 +2,7 @@ import collections
 import numpy as np
 import scipy
 import copy
+import pickle
 
 def discount_cumsum(x, discount):
     """Discounted cumulative sum.
@@ -58,7 +59,8 @@ class PathBuffer:
 
     """
 
-    def __init__(self, capacity_in_transitions, batch_size, pixel_keys, discount, gae_lambda, seed):
+    def __init__(self, capacity_in_transitions, batch_size, pixel_keys, discount, gae_lambda, seed, 
+                 path_to_perfect_buffer = None):
         self._capacity = capacity_in_transitions
         self.batch_size = batch_size
         self._transitions_stored = 0
@@ -73,6 +75,13 @@ class PathBuffer:
         self._buffer = {}
         self.rng = np.random.default_rng(seed)
         self._pixel_keys = pixel_keys
+        if path_to_perfect_buffer:
+            self._load_perfect_buffer(path_to_perfect_buffer)
+
+    def _load_perfect_buffer(self, path):
+        with open(path, 'rb') as f:
+            perfect_buffer = pickle.load(f)
+        self.update_replay_buffer(perfect_buffer)
 
     def add_path(self, path):
         """Add a path to the buffer.
@@ -187,7 +196,6 @@ class PathBuffer:
             assert np.bitwise_and(np.all(data['next_observations'] > -1.01), np.all(data['next_observations'] < 1.01)),\
                 'Expected normalized images'
             data['next_observations'] = np.rint((data['next_observations'] * 255 / 2) + 255 / 2).astype(np.uint8)
-
         return data
 
     def update_replay_buffer(self, data):

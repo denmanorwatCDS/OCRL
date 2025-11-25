@@ -90,10 +90,10 @@ class GaussianMLPBaseModule(nn.Module):
         return ret
 
     @abc.abstractmethod
-    def _get_mean_and_log_std(self, obs, task):
+    def _get_mean_and_log_std(self, obs):
         pass
 
-    def forward(self, obs, task):
+    def forward(self, obs):
         """Forward method.
 
         Args:
@@ -104,7 +104,7 @@ class GaussianMLPBaseModule(nn.Module):
                 distribution.
 
         """
-        mean, log_std_uncentered = self._get_mean_and_log_std(obs, task)
+        mean, log_std_uncentered = self._get_mean_and_log_std(obs)
 
         if self._std_parameterization == 'exp':
             std = log_std_uncentered.exp()
@@ -132,8 +132,8 @@ class GaussianMLPBaseModule(nn.Module):
 
         return dist
     
-    def forward_mode(self, obs, task):
-        dist = self.forward(obs, task)
+    def forward_mode(self, obs):
+        dist = self.forward(obs)
         return dist.mean
 
 class GaussianMLPTwoNetworksModule(GaussianMLPBaseModule):
@@ -197,7 +197,7 @@ class GaussianMLPTwoNetworksModule(GaussianMLPBaseModule):
     """
 
     def __init__(self,
-                 obs_length, task_length,
+                 feature_len,
                  output_dim,
                  mu_hidden_sizes=(32, 32),
                  mu_hidden_nonlinearity=torch.tanh,
@@ -228,7 +228,7 @@ class GaussianMLPTwoNetworksModule(GaussianMLPBaseModule):
 
         self._mean_module = MultiHeadedMLPModule(
             n_heads = 1,
-            input_dim = obs_length + task_length,
+            input_dim = feature_len,
             output_dims = output_dim,
             hidden_sizes = mu_hidden_sizes,
             hidden_nonlinearity = mu_hidden_nonlinearity,
@@ -242,7 +242,7 @@ class GaussianMLPTwoNetworksModule(GaussianMLPBaseModule):
 
         self._log_std_module = MultiHeadedMLPModule(
             n_heads = 1,
-            input_dim = obs_length + task_length,
+            input_dim = feature_len,
             output_dims = output_dim,
             hidden_sizes = std_hidden_sizes,
             hidden_nonlinearity = std_hidden_nonlinearity,
@@ -269,7 +269,7 @@ class GaussianMLPTwoNetworksModule(GaussianMLPBaseModule):
         else:
             return nn.init.constant_(b, self._init_std.exp().add(-1.0).log().item())
 
-    def _get_mean_and_log_std(self, obs, task):
+    def _get_mean_and_log_std(self, obs):
         """Get mean and std of Gaussian distribution given inputs.
 
         Args:
@@ -280,8 +280,7 @@ class GaussianMLPTwoNetworksModule(GaussianMLPBaseModule):
             torch.Tensor: The variance of Gaussian distribution.
 
         """
-        data = torch.cat([obs, task], dim = -1)
-        return self._mean_module(data)[0], self._log_std_module(data)[0]
+        return self._mean_module(obs)[0], self._log_std_module(obs)[0]
     
 class GaussianMLPTwoHeadsModule(GaussianMLPBaseModule):
     """GaussianMLPModule which has only one mean network.
@@ -330,7 +329,7 @@ class GaussianMLPTwoHeadsModule(GaussianMLPBaseModule):
     """
 
     def __init__(self,
-                 obs_length, task_length,
+                 feature_len,
                  output_dim,
                  hidden_sizes=(32, 32),
                  hidden_nonlinearity=torch.tanh,
@@ -353,7 +352,7 @@ class GaussianMLPTwoHeadsModule(GaussianMLPBaseModule):
 
         self._shared_mean_log_std_network = MultiHeadedMLPModule(
             n_heads = 2,
-            input_dim = obs_length + task_length,
+            input_dim = feature_len,
             output_dims = [output_dim, output_dim],
             hidden_sizes = hidden_sizes,
             hidden_nonlinearity = hidden_nonlinearity,
@@ -369,14 +368,13 @@ class GaussianMLPTwoHeadsModule(GaussianMLPBaseModule):
             ],
             layer_normalization = layer_normalization)
 
-    def _get_mean_and_log_std(self, obs, task):
-        data = torch.cat([obs, task], dim = -1)
-        outp = self._shared_mean_log_std_network(data)
+    def _get_mean_and_log_std(self, feature):
+        outp = self._shared_mean_log_std_network(feature)
         return outp[0], outp[1]
     
 class GaussianMLPCommonStdModule(GaussianMLPBaseModule):
     def __init__(self,
-                 obs_length, task_length,
+                 feature_len,
                  output_dim,
                  hidden_sizes=(32, 32),
                  hidden_nonlinearity=torch.tanh,
@@ -399,7 +397,7 @@ class GaussianMLPCommonStdModule(GaussianMLPBaseModule):
         
         self.mean_network = MultiHeadedMLPModule(
             n_heads = 1,
-            input_dim = obs_length + task_length,
+            input_dim = feature_len,
             output_dims = output_dim,
             hidden_sizes = hidden_sizes,
             hidden_nonlinearity = hidden_nonlinearity,
@@ -412,9 +410,8 @@ class GaussianMLPCommonStdModule(GaussianMLPBaseModule):
         
         self._log_std_parameter = torch.nn.Parameter(torch.Tensor([[init_std for i in range(output_dim)]]).log())
 
-    def _get_mean_and_log_std(self, obs, task):
-        data = torch.cat([obs, task], dim = -1)
-        return self.mean_network(data)[0], self._log_std_parameter
+    def _get_mean_and_log_std(self, obs):
+        return self.mean_network(obs)[0], self._log_std_parameter
     
 class GaussianMLPTaskBasedStdModule(GaussianMLPBaseModule):
     def __init__(self,
@@ -482,7 +479,7 @@ class GaussianMLPTaskBasedStdModule(GaussianMLPBaseModule):
         """
         return self.mean_network(obs), self._logstd_network(task)
     
-def get_distribution_network(name, obs_length, task_length, output_dim,
+def get_distribution_network(name, feature_length, output_dim,
                              distribution_config):
     if name == 'GlobalStd':
         TargetClass = GaussianMLPCommonStdModule
@@ -492,5 +489,5 @@ def get_distribution_network(name, obs_length, task_length, output_dim,
         TargetClass = GaussianMLPTwoHeadsModule
     elif name == 'TwoNetworks':
         TargetClass = GaussianMLPTwoNetworksModule
-    return TargetClass(obs_length = obs_length, task_length = task_length, output_dim = output_dim, 
+    return TargetClass(feature_len = feature_length, output_dim = output_dim, 
                        **distribution_config)

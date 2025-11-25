@@ -86,9 +86,13 @@ class BaseEnv:
                 scale_vec = np.array([scale])
                 return np.concatenate([color_vec, shape_vec, scale_vec, position])
         elif self.render_mode == 'simple_state':
-            self._state_size = 2
-            def state_fetcher(color, shape, scale, position):
-                return position
+            self._state_size = 3
+            def state_fetcher(color, shape, scale, position, agent_pos):
+                is_agent = np.array([0])
+                if color == 'red' and shape == 'circle':
+                    is_agent = np.array([1])
+                #distance = np.array([l1_norm(position - agent_pos)])
+                return np.concatenate([is_agent, position])
         else:
             raise NotImplementedError
         return state_fetcher
@@ -247,7 +251,8 @@ class BaseEnv:
                     gt_states[i] = np.zeros(self._state_size) - 1
                     continue
                 gt_states[i] = self.state_fetcher(color = self._objs[i, 0], shape = self._objs[i, 1],
-                                                  scale = self._objs[i, 2], position = self._objs[i, 3:5])
+                                                  scale = self._objs[i, 2], position = self._objs[i, 3:5],
+                                                  agent_pos = self._objs[-1, 3:5])
             # Indexing Agent
             gt_states = np.array(gt_states, dtype=np.float32)
             if fill_empty:
