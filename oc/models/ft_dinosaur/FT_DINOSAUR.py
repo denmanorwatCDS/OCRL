@@ -22,7 +22,6 @@ class FT_DINOSAUR(OC_model):
         self.num_slots = ocr_config.slotattr.num_slots
         self.rep_dim = ocr_config.slotattr.slot_size
 
-        self.reg_coef = ocr_config.loss.reg_coef
         # build encoder
         self._enc = FrameEncoder(
             backbone_kwargs = ocr_config.encattr.backbone,
@@ -38,7 +37,8 @@ class FT_DINOSAUR(OC_model):
             slot_size = ocr_config.slotattr.slot_size,
             mlp_hidden_size = ocr_config.slotattr.mlp_hidden_size,
             num_heads = ocr_config.slotattr.num_slot_heads,
-            normalizer = ocr_config.slotattr.normalizer
+            normalizer = ocr_config.slotattr.normalizer,
+            preinit_type = ocr_config.slotattr.preinit_type
         )
         self._target_enc = FrameEncoder(
             backbone_kwargs = ocr_config.targetencattr.backbone,
@@ -151,7 +151,7 @@ class FT_DINOSAUR(OC_model):
     def get_slots(self, obs):
         return self._get_slots(obs, do_dropout = False)[0]
     
-    def get_loss(self, obs, do_dropout):
+    def get_loss(self, obs, future_obs, do_dropout):
         mse = torch.nn.MSELoss(reduction = "mean")
 
         slots, slot_attns = self._get_slots(obs, do_dropout = do_dropout)

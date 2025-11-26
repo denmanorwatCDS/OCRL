@@ -175,7 +175,7 @@ def evaluate_agent(oc_model, agent, make_env_fns, device, float_to_uint, eval_ep
                     per_episode_returns.append(current_returns[i])
                     current_returns[i] = 0
                     if total_dones >= eval_episodes:
-                        for j in range(i, num_envs - 1):
+                        for j in range(i + 1, num_envs):
                             videos[j].append(black_screen)
                         break
         video = []

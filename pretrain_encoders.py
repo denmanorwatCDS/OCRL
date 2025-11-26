@@ -1,7 +1,7 @@
 import hydra
 import torch
 import omegaconf
-import os, sys, random
+import os, sys
 
 from comet_ml import Experiment
 from torch.utils.data import DataLoader
@@ -11,8 +11,6 @@ from data_utils.H5_dataset import H5Dataset
 
 from utils.eval_tools import evaluate_ocr_model
 from utils.train_tools import get_model_name, get_uint_to_float
-
-import numpy as np
 
 @hydra.main(config_path="configs/", config_name="train_ocr")
 def main(config):
@@ -35,7 +33,7 @@ def main(config):
     # TODO train augmentations: shortest_size_resize (bicubic), hflip for train
     # TODO val augmentations: central_resize (bicubic for images, nearest neighbour for masks)
 
-    if config.ocr['name'] == 'FT_DINOSAUR':
+    if config.ocr['name'] == 'FT_DINOSAUR' and config.ocr.use_augs:
         import cv2
         from albumentations import ColorJitter, RandomResizedCrop, Rotate, HorizontalFlip, Compose
         random_flip = HorizontalFlip(p = 0.5)
@@ -49,7 +47,7 @@ def main(config):
     else:
         augment = lambda x: x
 
-    uint_to_float = get_uint_to_float(config.ocr.image_limits[0], config.ocr.image_limits[1])
+    uint_to_float, _ = get_uint_to_float(config.ocr.image_limits[0], config.ocr.image_limits[1])
 
     train_dataset = H5Dataset(datafile = path_to_target_dataset, uint_to_float = uint_to_float, 
                               use_future = config.ocr.slotattr.matching_loss.use, 
@@ -93,7 +91,7 @@ def main(config):
                                          image_minmax = (0, 255), step = i)
                 model.training_mode()
                 
-            if (i == (config.max_steps - 5_000)):
+            if (i == (config.max_steps - 5)):
                 torch.save(model.state_dict(), model_save_path + f';step:{i}')
                 
             i += 1
