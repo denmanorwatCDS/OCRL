@@ -225,6 +225,7 @@ def main(config):
                             logs_before_ppg = logs_before_ppg, imgs_before_ppg = imgs_before_ppg,
                             logs_after_ppg = logs_after_ppg, imgs_after_ppg = imgs_after_ppg,
                             curves = ppg_curves)
+            os.remove(path_to_video)
 
         y_true, y_pred = rollout_buffer.get_return_value()
         explained_variance = calculate_explained_variance(y_true, y_pred)
@@ -232,7 +233,6 @@ def main(config):
         metrics.update({'ppo/explained_variance': explained_variance, 
                         'ppo/steps_per_second': int(global_step / (time.time() - start_time))})
         experiment.log_metrics(metrics.convert_to_dict(), step = global_step)
-        os.remove(path_to_video)
         
 if __name__ == "__main__":
     main()
