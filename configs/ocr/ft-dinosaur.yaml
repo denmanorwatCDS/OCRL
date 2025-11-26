@@ -1,11 +1,16 @@
 name: 'FT_DINOSAUR'
 resize: false
-use_augs: true
+use_augs: false
 augment_samples: false
 batch_size: 128
 pretrained_path: null
 dataset_folder: null
 image_limits: [-1, 1]
+
+feature_dropout:
+  min_features_dropped: 0.
+  max_features_dropped: 0.2
+  feature_dropout_proba: 1.
 
 slotattr:
   num_iterations: 3
@@ -62,7 +67,6 @@ optimizer:
     lr: 0.0003
     gradient_clip_val: 1.
     weight_decay: 0.0
-    betas: [0.9, 0.9975]
     lr_scheduler:
       type: cosine
       warmup_steps: 20_000
@@ -73,7 +77,6 @@ optimizer:
     lr: 0.0003
     gradient_clip_val: 1.
     weight_decay: 0.0
-    betas: [0.9, 0.9975]
     lr_scheduler:
       type: cosine
       warmup_steps: 20_000
@@ -84,7 +87,6 @@ optimizer:
     lr: 0.0003
     gradient_clip_val: 0.1
     weight_decay: 0.01
-    betas: [0.9, 0.9975]
     lr_scheduler:
       type: cosine
       warmup_steps: 20_000

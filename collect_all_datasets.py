@@ -4,14 +4,12 @@ import numpy as np
 import hydra
 from omegaconf import OmegaConf
 
-num_tr = 1_000_000
+num_proc = 10
 num_val = 10_000
 data_path = '/media/denis/data'
 
-num_proc = 10
-chunks = 50
-
-def collect_data(config, data_path, img_path, obs_size, reset_after_each_step, env_type):
+def collect_data(config, data_path, img_path, obs_size, reset_after_each_step, env_type,
+                 dataset_size, dataset_chunks):
     print('Collecting data...')
     from envs.collect_data.collect_data_from_env import parallel_get_data
     config.obs_size = obs_size
@@ -31,16 +29,16 @@ def collect_data(config, data_path, img_path, obs_size, reset_after_each_step, e
     os.makedirs(data_path, exist_ok = True), os.makedirs(img_path, exist_ok = True)
     f = h5py.File(file_name, "w")
     tr_group = f.create_group("TrainingSet")
-    tr_group.create_dataset(name = 'obss', shape = (num_tr, config.obs_size, config.obs_size, 3), 
-                            chunks = (num_tr // chunks, config.obs_size, config.obs_size, 3), dtype = np.uint8)
-    tr_group.create_dataset(name = 'dones', shape = (num_tr, ),
-                            chunks = (num_tr // chunks), dtype = np.bool_)
-    for i in range(chunks):
-        obss, _, dones = parallel_get_data(env, env_type, num_proc, num_tr // chunks, 
+    tr_group.create_dataset(name = 'obss', shape = (dataset_size, config.obs_size, config.obs_size, 3), 
+                            chunks = (dataset_size // dataset_chunks, config.obs_size, config.obs_size, 3), dtype = np.uint8)
+    tr_group.create_dataset(name = 'dones', shape = (dataset_size, ),
+                            chunks = (dataset_size // dataset_chunks), dtype = np.bool_)
+    for i in range(dataset_chunks):
+        obss, _, dones = parallel_get_data(env, env_type, num_proc, dataset_size // dataset_chunks, 
                                                       reset_after_each_step = reset_after_each_step, render_masks = False,
                                                       img_path = img_path if i == 0 else None)
-        tr_group["obss"][i * (num_tr // chunks): (i + 1) * (num_tr // chunks)] = obss
-        tr_group["dones"][i * (num_tr // chunks): (i + 1) * (num_tr // chunks)] = dones
+        tr_group["obss"][i * (dataset_size // dataset_chunks): (i + 1) * (dataset_size // dataset_chunks)] = obss
+        tr_group["dones"][i * (dataset_size // dataset_chunks): (i + 1) * (dataset_size // dataset_chunks)] = dones
     val_group = f.create_group("ValidationSet")
     obss, masks, dones = parallel_get_data(env, env_type, num_proc, num_val, 
                                                       reset_after_each_step = reset_after_each_step, render_masks = True,
@@ -72,6 +70,7 @@ def main(config):
             else:
                 agg_conf = env_config
             collect_data(agg_conf, data_path = dataset_folder, img_path = examples_folder, 
-                         obs_size = obs_size, reset_after_each_step = reset_after_each_step, env_type = env_type)
+                         obs_size = obs_size, reset_after_each_step = reset_after_each_step, env_type = env_type,
+                         dataset_size = config.envs[dict_key]['size'], dataset_chunks = config.envs[dict_key]['chunks'])
 
 main()

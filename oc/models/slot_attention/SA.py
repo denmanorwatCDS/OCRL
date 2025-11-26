@@ -48,14 +48,6 @@ class Slot_Attention(OC_model):
         self._dec = BroadCastDecoder(obs_size = obs_size, obs_channels = obs_channels, 
                                      hidden_size = ocr_config.cnn_hsize, slot_size = ocr_config.slotattr.slot_size,
                                      initial_size = ocr_config.initial_size)
-        self.use_hungarian_loss = ocr_config.slotattr.matching_loss.use
-        self.hungarian_coef = ocr_config.slotattr.matching_loss.coef
-        if self.use_hungarian_loss:
-            self.contrastive_projector = nn.Sequential(
-                nn.Tanh(),
-                linear(ocr_config.slotattr.slot_size, ocr_config.slotattr.slot_size, weight_init="kaiming"),
-                nn.ReLU(),
-                linear(ocr_config.slotattr.slot_size, ocr_config.slotattr.slot_size))
 
     def _get_slot_params(self):
         return self._slot_attention.named_parameters()
@@ -73,7 +65,7 @@ class Slot_Attention(OC_model):
                 'slot': self._get_slot_params(),
                 'decoder': self._get_decoder_params()}
     
-    def _get_slots(self, obs, do_dropout, training):
+    def _get_slots(self, obs, do_dropout):
         if do_dropout:
             self._patch_dropout.turn_on_dropout(), self._feature_dropout.turn_on_dropout()
         else:
@@ -82,30 +74,19 @@ class Slot_Attention(OC_model):
         encoder_output = torch.permute(encoder_output, dims = [0, 2, 3, 1])
         features = torch.reshape(encoder_output, (encoder_output.shape[0], -1, encoder_output.shape[-1]))
 
-        if training:
-            with torch.no_grad():
-                _feat = self._enc(obs)
-                self._slot_attention.update_statistics(_feat)
-
         slots, enc_attns = self._slot_attention(features)
         return slots, enc_attns
     
-    def get_slots(self, obs, training):
-        return self._get_slots(obs, do_dropout = False, training = training)[0]
+    def get_slots(self, obs):
+        return self._get_slots(obs, do_dropout = False)[0]
     
     def get_loss(self, obs, future_obs, do_dropout):
-        slots, _ = self._get_slots(obs, do_dropout = do_dropout, training = True)
+        slots, _ = self._get_slots(obs, do_dropout = do_dropout)
         recon, _ = self._dec(slots)
-        hung_loss = 0
         SA_loss = mse_loss(obs, recon)
         mets = {'total_loss': SA_loss.detach().cpu(),
                 'SA_loss': SA_loss.detach().cpu()}
-        if self.use_hungarian_loss:
-            future_slots = self._get_slots(future_obs, do_dropout = do_dropout, training = True)[0]
-            slots, future_slots = self.contrastive_projector(slots), self.contrastive_projector(future_slots)
-            hung_loss = hungarian_loss(slots, future_slots) * self.hungarian_coef
-            mets.update({'hungarian_loss': hung_loss.detach().cpu()})
-        total_loss = SA_loss + hung_loss
+        total_loss = SA_loss
         return total_loss, mets
     
     def decode_slots(self, obs, slots):
@@ -116,7 +97,7 @@ class Slot_Attention(OC_model):
     
     def calculate_validation_data(self, obs):
         with torch.no_grad():
-            slots, enc_attns = self._get_slots(obs, do_dropout = False, training = False)
+            slots, enc_attns = self._get_slots(obs, do_dropout = False)
             enc_attns = enc_attns.transpose(-1, -2)
             
             recon, dec_attns = self._dec(slots)
@@ -125,7 +106,7 @@ class Slot_Attention(OC_model):
             enc_masked_imgs, enc_masks = self.convert_attns_to_masks(obs, enc_attns)
             dec_masked_imgs, dec_masks = self.convert_attns_to_masks(obs, dec_attns)
 
-            drop_slots, drop_enc_attns = self._get_slots(obs, do_dropout = True, training = False)
+            drop_slots, drop_enc_attns = self._get_slots(obs, do_dropout = True)
             drop_enc_attns = drop_enc_attns.transpose(-1, -2)
             
             drop_recon, drop_dec_attns = self._dec(drop_slots)

@@ -85,14 +85,6 @@ class SLATE(OC_model):
         )
         # intermediate layer between TF decoder and dVAE decoder
         self._out = linear(d_model, vocab_size, bias=False)
-        self.use_hungarian_loss = ocr_config.slotattr.matching_loss.use
-        self.hungarian_coef = ocr_config.slotattr.matching_loss.coef
-        if self.use_hungarian_loss:
-            self.contrastive_projector = nn.Sequential(
-                nn.Tanh(),
-                linear(ocr_config.slotattr.slot_size, ocr_config.slotattr.slot_size, weight_init="kaiming"),
-                nn.ReLU(),
-                linear(ocr_config.slotattr.slot_size, ocr_config.slotattr.slot_size))
 
     def get_enc_params(self):
         return chain(self._enc.named_parameters(),
@@ -128,7 +120,7 @@ class SLATE(OC_model):
         z_hard = gumbel_softmax(z_logits, self._tau, True, dim=1).detach()
         return z, z_hard
     
-    def _get_slots(self, obs, do_dropout, training):
+    def _get_slots(self, obs, do_dropout):
         if do_dropout:
             self._patch_dropout.turn_on_dropout(), self._feature_dropout.turn_on_dropout()
         else:
@@ -137,17 +129,12 @@ class SLATE(OC_model):
         encoder_output = torch.permute(encoder_output, dims = [0, 2, 3, 1])
         features = torch.reshape(encoder_output, (encoder_output.shape[0], -1, encoder_output.shape[-1]))
 
-        if training:
-            with torch.no_grad():
-                _feat = self._enc(obs)
-                self._slot_attention.update_statistics(_feat)
-
         slots, enc_attns = self._slot_attention(features)
         
         return slots, enc_attns
     
-    def get_slots(self, obs, training):
-        return self._get_slots(obs, do_dropout = False, training = training)[0]
+    def get_slots(self, obs):
+        return self._get_slots(obs, do_dropout = False)[0]
     
     def _calculate_CE(self, obs, slots, z_hard):
         z_hard = z_hard.permute(0, 2, 3, 1).flatten(start_dim=1, end_dim=2)
@@ -169,20 +156,13 @@ class SLATE(OC_model):
         dvae_mse = mse_loss(dvae_recon, obs)
 
         # SLATE component of the loss
-        slots, _ = self._get_slots(obs, do_dropout = do_dropout, training = True)
+        slots, _ = self._get_slots(obs, do_dropout = do_dropout)
         cross_entropy = self._calculate_CE(obs, slots, z_hard = z_hard)
         
         total_loss = dvae_mse + cross_entropy
         mets = {'total_loss': total_loss.detach().cpu(),
                 'dvae_mse': dvae_mse.detach().cpu(),
                 'cross_entropy': cross_entropy.detach().cpu()}
-        hung_loss = 0
-        if self.use_hungarian_loss:
-            future_slots = self._get_slots(future_obs, do_dropout = do_dropout, training = True)[0]
-            slots, future_slots = self.contrastive_projector(slots), self.contrastive_projector(future_slots)
-            hung_loss = hungarian_loss(slots, future_slots) * self.hungarian_coef
-            mets.update({'hungarian_loss': hung_loss.detach().cpu()})
-        total_loss += hung_loss
         return total_loss, mets
     
     def decode_slots(self, obs, slots):
@@ -211,13 +191,13 @@ class SLATE(OC_model):
             dvae_mse = mse_loss(dvae_recon, obs)
 
             # SLATE component of the loss
-            drop_slots, drop_enc_attns = self._get_slots(obs, do_dropout = True, training = False)
+            drop_slots, drop_enc_attns = self._get_slots(obs, do_dropout = True)
             drop_enc_attns = drop_enc_attns.transpose(-1, -2)
             drop_cross_entropy = self._calculate_CE(obs, drop_slots, z_hard = z_hard)
             drop_tr_recon = self._gen_imgs(drop_slots)
             drop_enc_masked_imgs, drop_enc_masks = self.convert_attns_to_masks(obs, drop_enc_attns)
 
-            slots, enc_attns = self._get_slots(obs, do_dropout = False, training = False)
+            slots, enc_attns = self._get_slots(obs, do_dropout = False)
             enc_attns = enc_attns.transpose(-1, -2)
             
             cross_entropy = self._calculate_CE(obs, slots, z_hard = z_hard)

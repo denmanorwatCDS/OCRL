@@ -4,7 +4,7 @@ mode: 'hard'
 rew_type: 'sparse'
 distance_to_agent: 0.08
 distance_to_objs: 0.08
-distance_to_wall: 0.08
+distance_to_wall: 0.
 num_stacked_obss: 1
 tags: ""
 obs_size: 64

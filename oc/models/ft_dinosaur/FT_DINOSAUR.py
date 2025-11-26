@@ -3,7 +3,9 @@ from torch import nn
 from oc.models.oc_model import OC_model
 from oc.models.ft_dinosaur.submodels import FrameEncoder, MLPDecoder, Resizer
 from oc.models.utils.slot_attention import SlotAttentionModule
+from oc.models.utils.dropouts import FeatureDropout
 from copy import deepcopy
+from itertools import chain
 
 
 class FT_DINOSAUR(OC_model):
@@ -27,10 +29,12 @@ class FT_DINOSAUR(OC_model):
             output_transform_kwargs = ocr_config.encattr.output_transform,
             obs_size = (obs_size, obs_size)
         )
+
+        fmap_size = ocr_config.encattr.output_transform.outp_dim if ocr_config.encattr.output_transform is not None else 384
         self._slot_attention = SlotAttentionModule(
             num_iterations = ocr_config.slotattr.num_iterations,
             num_slots = ocr_config.slotattr.num_slots,
-            input_channels = ocr_config.encattr.output_transform.outp_dim if ocr_config.encattr.output_transform is not None else 384,
+            input_channels = fmap_size,
             slot_size = ocr_config.slotattr.slot_size,
             mlp_hidden_size = ocr_config.slotattr.mlp_hidden_size,
             num_heads = ocr_config.slotattr.num_slot_heads,
@@ -41,6 +45,12 @@ class FT_DINOSAUR(OC_model):
             output_transform_kwargs = None,
             obs_size = (obs_size, obs_size)
         )
+
+        self._feature_dropout = FeatureDropout(feature_dropout_proba = ocr_config.feature_dropout.feature_dropout_proba,
+                                               min_features_dropped = ocr_config.feature_dropout.min_features_dropped,
+                                               max_features_dropped = ocr_config.feature_dropout.max_features_dropped,
+                                               fmap_size = fmap_size, device = 'cuda:0')
+
         with torch.no_grad():
             test_tensor = torch.zeros((1, obs_channels, obs_size, obs_size))
             inp_shape = self._target_enc(test_tensor, patch_dropout = False)['features'].shape[1]
@@ -62,7 +72,7 @@ class FT_DINOSAUR(OC_model):
         self._prepare_enc_paramwise_lr()
 
     def get_enc_params(self):
-        return self._enc.named_parameters()
+        return chain(self._enc.named_parameters(), self._feature_dropout.named_parameters())
 
     def get_slot_params(self):
         return self._slot_attention.named_parameters()
@@ -127,25 +137,24 @@ class FT_DINOSAUR(OC_model):
     def get_paramwise_lr(self):
         return deepcopy(self._paramwise_lr)
     
-    def _get_slots(self, obs, do_dropout, training):
-        encoder_output = self._enc(obs, patch_dropout = do_dropout)
+    def _get_slots(self, obs, do_dropout):
+        if do_dropout:
+            self._feature_dropout.turn_on_dropout()
+        else:
+            self._feature_dropout.turn_off_dropout()    
+        encoder_output = self._feature_dropout(self._enc(obs, patch_dropout = do_dropout))
         features = encoder_output['features']
-        
-        if training:
-            with torch.no_grad():
-                _feat = self._enc(obs, patch_dropout = do_dropout)['features']
-                self._slot_attention.update_statistics(_feat)
 
         slots, attns = self._slot_attention(features)
         return slots, attns
     
-    def get_slots(self, obs, training):
-        return self._get_slots(obs, do_dropout = False, training = training)[0]
+    def get_slots(self, obs):
+        return self._get_slots(obs, do_dropout = False)[0]
     
     def get_loss(self, obs, do_dropout):
         mse = torch.nn.MSELoss(reduction = "mean")
 
-        slots, slot_attns = self._get_slots(obs, do_dropout = do_dropout, training = True)
+        slots, slot_attns = self._get_slots(obs, do_dropout = do_dropout)
         dec_out = self._dec(slots)
         decoder_output, decoder_attns = dec_out['reconstruction'], dec_out['masks']
         with torch.no_grad():
@@ -163,13 +172,13 @@ class FT_DINOSAUR(OC_model):
         with torch.no_grad():
             target_encoder_output = self._target_enc(obs, patch_dropout = False)['features']
 
-            slots, enc_attns = self._get_slots(obs, do_dropout = False, training = False)
+            slots, enc_attns = self._get_slots(obs, do_dropout = False)
             enc_attns = enc_attns.transpose(-1, -2)
             out = self._dec(slots)
             dec_output, dec_attns = out['reconstruction'], out['masks']
             dino_loss = mse(dec_output, target_encoder_output)
             
-            drop_slots, _ = self._get_slots(obs, do_dropout = True, training = False)
+            drop_slots, _ = self._get_slots(obs, do_dropout = True)
             out = self._dec(drop_slots)
             drop_dec_output, drop_dec_attns = out['reconstruction'], out['masks']
             drop_dino_loss = mse(drop_dec_output, target_encoder_output)

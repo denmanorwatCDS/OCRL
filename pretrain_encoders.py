@@ -2,7 +2,6 @@ import hydra
 import torch
 import omegaconf
 import os, sys, random
-import random
 
 from comet_ml import Experiment
 from torch.utils.data import DataLoader
@@ -70,7 +69,6 @@ def main(config):
     model = model.to('cuda')
     optimizer = OCOptimizer(omegaconf.OmegaConf.to_container(config.ocr.optimizer), oc_model = model, policy = None)
     i = 0
-    best_loss, best_model, best_idx, has_saved = 1e9, None, None, False
     model.training_mode()
     while i < config.max_steps:
         for batch, future_batch in train_dataloader:
@@ -80,7 +78,7 @@ def main(config):
             loss.backward()
             mets.update(optimizer.optimizer_step('oc'))
             
-            if i % 100 == 0:
+            if i % 500 == 0:
                 experiment.log_metrics(mets, step = i)
             
             if (i % 10_000 == 0):
@@ -94,14 +92,9 @@ def main(config):
                     experiment.log_image(image_data = imgs[key], name = f'val/{key}', 
                                          image_minmax = (0, 255), step = i)
                 model.training_mode()
-                if best_loss > logs['total_loss']:
-                    best_loss, best_model, best_idx = logs['total_loss'], model.state_dict(), i
-                    if i >= config.max_steps - 30_000:
-                        torch.save(best_model, model_save_path + f';step:{best_idx}')
                 
-                if (i >= config.max_steps - 30_000) and not has_saved:
-                    has_saved = True
-                    torch.save(best_model, model_save_path + f';step:{best_idx}')
+            if (i == (config.max_steps - 5_000)):
+                torch.save(model.state_dict(), model_save_path + f';step:{i}')
                 
             i += 1
             if i > config.max_steps:
