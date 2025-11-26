@@ -4,7 +4,7 @@ from torch.distributions.kl import kl_divergence
 from torch.utils.data import DataLoader
 import torch.nn.functional as F
 
-import sys
+import os, sys
 import h5py
 import torch
 import hydra
@@ -18,9 +18,9 @@ from oc import ocrs
 from oc.optimizer.optimizer import OCOptimizer
 from RL.policy import Policy
 from RL.rollout_buffer import OCRolloutBuffer
-from utils.train_tools import infer_obs_action_shape, make_env, update_curves_, get_uint_to_float, stop_oc_optimizer_
+from utils.train_tools import infer_obs_action_shape, make_env, update_curves_, get_uint_to_float, get_float_to_uint, stop_oc_optimizer_
 from data_utils.H5_dataset import H5Dataset
-from utils.eval_tools import calculate_explained_variance, evaluate_ocr_model, get_episodic_metrics, log_ppg_results, Metrics
+from utils.eval_tools import calculate_explained_variance, evaluate_ocr_model, evaluate_agent, get_episodic_metrics, log_ppg_results, Metrics
 
 @hydra.main(config_path="configs/", config_name="train_rl")
 def main(config):
@@ -43,32 +43,32 @@ def main(config):
     dataset_path = '/'.join([config.dataset_root_path, 
                              f"{config.env.obs_size}x{config.env.obs_size}", 
                              config.env.precollected_dataset, 'dataset', 'data.hdf5'])
-    uint_to_float = get_uint_to_float(config.ocr.image_limits[0], config.ocr.image_limits[1])
+    torch_uint_to_float, numpy_uint_to_float = get_uint_to_float(config.ocr.image_limits[0], config.ocr.image_limits[1])
+    float_to_uint = get_float_to_uint(config.ocr.image_limits[0], config.ocr.image_limits[1])
     rollout_dataset = h5py.File(dataset_path, "r")['TrainingSet']
     # TODO pass rollout preprocessor as input in wrappers to unify preprocessing pipeline for images
     # gathered both from environment and via random policy as they are from same distribution
-    # TODO add freezed version of RL algorithm;
-    # TODO detach target tensors in PPG phase
-    rollout_preprocessor = lambda x: uint_to_float(torch.from_numpy(x)).permute(2, 0, 1)
+    rollout_preprocessor = lambda x: torch_uint_to_float(torch.from_numpy(x)).permute(2, 0, 1)
     
-    val_dataset = H5Dataset(datafile = dataset_path, uint_to_float = uint_to_float,
+    val_dataset = H5Dataset(datafile = dataset_path, uint_to_float = torch_uint_to_float,
                             use_future = False, 
                             future_steps = config.ocr.slotattr.matching_loss.steps_into_future, 
                             augment = None, is_train = False)
     val_dataloader = DataLoader(val_dataset, batch_size = config.ocr.batch_size, shuffle = False)
     if config.num_envs == 1:
         envs = gym.vector.SyncVectorEnv(
-        [lambda: make_env(config.env, gamma = config.sb3.gamma, 
-                          ocr_min_val = config.ocr.image_limits[0], ocr_max_val = config.ocr.image_limits[1], 
-                          seed = config.seed)])
+        [lambda: make_env(config.env, gamma = config.sb3.gamma, obs_preprocessor = numpy_uint_to_float, seed = config.seed)])
+        eval_env_fns = [lambda: make_env(config.env, gamma = config.sb3.gamma, obs_preprocessor = numpy_uint_to_float, seed = config.seed + 1)]
     else:
         # Due to lazy execution, we pass index of environment explicitly as input to lambda function in order to
         # avoid seeding problems (i.e., identical seed in different processes).
         envs = gym.vector.AsyncVectorEnv(
             [lambda rank = i: make_env(config.env, gamma = config.sb3.gamma, 
-                                       ocr_min_val = config.ocr.image_limits[0], ocr_max_val = config.ocr.image_limits[1], 
-                                       seed = config.seed, rank = rank) for i in range(config.num_envs)],
-                                       context = 'fork')
+                obs_preprocessor = numpy_uint_to_float, seed = config.seed, rank = rank) \
+                for i in range(config.num_envs)], context = 'fork')
+        eval_env_fns = [lambda rank = i: make_env(config.env, gamma = config.sb3.gamma, 
+                        obs_preprocessor = numpy_uint_to_float, seed = config.seed, rank = rank) \
+                        for i in range(config.num_envs, 2 * config.num_envs)]
 
     random.seed(config.seed), np.random.seed(config.seed), torch.manual_seed(config.seed)
     device = torch.device("cuda")
@@ -187,12 +187,16 @@ def main(config):
 
         if oc_model.requires_ppg() and iteration % config.sb3.ppg_freq == 0:
             optimizer.optimizer_zero_grad()
+            # Evaluate agent
+            oc_model.inference_mode(), agent.inference_mode()
+            logs_before_ppg, imgs_before_ppg = evaluate_ocr_model(oc_model, val_dataloader)
+            path_to_video, mean_return = evaluate_agent(oc_model = oc_model, agent = agent, make_env_fns = eval_env_fns,
+                                                        device=device, float_to_uint = float_to_uint)
+            experiment.log_video(file = path_to_video, name = 'eval/video', step = global_step)
+            oc_model.training_mode(), agent.training_mode()
             # TODO check that target models preserve their weights
             target_oc_model, target_agent = deepcopy(oc_model), deepcopy(agent)
             ppg_curves = {}
-            oc_model.inference_mode()
-            logs_before_ppg, imgs_before_ppg = evaluate_ocr_model(oc_model, val_dataloader)
-            oc_model.training_mode()
             for start_obs, future_obs in rollout_buffer.get_obs_generator(mode = 'ppg'):
                 if not config.sb3.train_feature_extractor:
                     break
@@ -226,7 +230,9 @@ def main(config):
         rollout_buffer.reset_trajectories()
         metrics.update({'ppo/explained_variance': explained_variance, 
                         'ppo/steps_per_second': int(global_step / (time.time() - start_time))})
+        metrics.update({'eval/mean_return': mean_return})
         experiment.log_metrics(metrics.convert_to_dict(), step = global_step)
+        os.remove(path_to_video)
         
 if __name__ == "__main__":
     main()

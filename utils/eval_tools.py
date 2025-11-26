@@ -1,6 +1,7 @@
 import torch
 import numpy as np
 from sklearn.metrics import adjusted_rand_score
+import gym, cv2, time, os
 
 # reshape image for visualization
 for_viz = lambda x: np.array(
@@ -149,6 +150,47 @@ def evaluate_ocr_model(model, val_dataloader, full_eval = False):
                                                            attn_images[name].shape[3]))
         imgs[name] = attn_images[name]
     return logs, imgs
+
+def evaluate_agent(oc_model, agent, make_env_fns, device, float_to_uint, eval_episodes = 64):
+    num_envs = len(make_env_fns)
+    if num_envs == 1:
+        eval_envs = gym.vector.SyncVectorEnv(make_env_fns)
+    else:
+        eval_envs = gym.vector.AsyncVectorEnv(make_env_fns, context = 'fork')
+    per_episode_returns, total_dones = [], 0
+    videos, current_returns = [[] for i in range(num_envs)], [0 for i in range(num_envs)]
+    next_obs = torch.Tensor(eval_envs.reset()).to(device)
+    black_screen = torch.permute(torch.zeros(next_obs[0].shape, dtype = torch.uint8), dims = (1, 2, 0)).to(device)
+    with torch.no_grad():
+        while total_dones < eval_episodes:
+            slots = oc_model.get_slots(next_obs)
+            action, *_ = agent.get_action_logprob_entropy(slots)
+            next_obs, rewards, next_dones, _ = eval_envs.step(action.cpu().numpy())
+            next_obs = torch.Tensor(next_obs).to(device)
+            for i in range(num_envs):
+                videos[i].append(torch.permute(float_to_uint(next_obs[i]), dims = (1, 2, 0)))
+                current_returns[i] += rewards[i]
+                if next_dones[i]:
+                    total_dones += 1
+                    per_episode_returns.append(current_returns[i])
+                    current_returns[i] = 0
+                    if total_dones >= eval_episodes:
+                        for j in range(i, num_envs - 1):
+                            videos[j].append(black_screen)
+                        break
+        video = []
+        for i in range(num_envs):
+            video.append(torch.stack(videos[i], dim = 0))
+        video = torch.cat(video, dim=-2).cpu().numpy()
+
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        video_filename = os.getcwd() + '/' + str(time.time()) + '.mp4'
+        out = cv2.VideoWriter(video_filename, fourcc, 10, (video.shape[-2], video.shape[-3]))
+        for frame in video:
+            out.write(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
+        out.release()
+
+        return video_filename, sum(per_episode_returns) / eval_episodes
 
 def calculate_explained_variance(y_true, y_pred):
     y_true, y_pred = y_true.cpu().numpy(), y_pred.cpu().numpy()

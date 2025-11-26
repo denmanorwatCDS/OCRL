@@ -1,21 +1,21 @@
-obs_sizes: [224] #, 64
+obs_sizes: [64, 224]
 
 envs:
-  #cw_diverse:
-  #  name: HighDiversityOcclusionCW
-  #  type: Causal
-  #  env_yaml: cw-notarget-N4C11S1S1-hard.yaml
-  #  reset_after_each_step: False
-  #  size: 1_000_000
-  #  chunks: 50
+  cw_diverse:
+    name: HighDiversityOcclusionCW
+    type: Causal
+    env_yaml: cw-notarget-N4C11S1S1-hard.yaml
+    reset_after_each_step: False
+    size: 1_000_000
+    chunks: 50
 
-  #cw_env:
-  #  name: ClassicalCW
-  #  type: Causal
-  #  env_yaml: cw-target-N4C4S1S1-hard.yaml
-  #  reset_after_each_step: False
-  #  size: 50_000
-  #  chunks: 2
+  cw_env:
+    name: ClassicalCW
+    type: Causal
+    env_yaml: cw-target-N4C4S1S1-hard.yaml
+    reset_after_each_step: False
+    size: 50_000
+    chunks: 2
 
   sh_diverse:
     name: HighDiversityOcclusionSH

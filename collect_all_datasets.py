@@ -5,7 +5,7 @@ import hydra
 from omegaconf import OmegaConf
 
 num_proc = 10
-num_val = 10_000
+num_val = 2_500
 data_path = '/media/denis/data'
 
 def collect_data(config, data_path, img_path, obs_size, reset_after_each_step, env_type,
