@@ -192,6 +192,7 @@ def main(config):
             logs_before_ppg, imgs_before_ppg = evaluate_ocr_model(oc_model, val_dataloader)
             path_to_video, mean_return = evaluate_agent(oc_model = oc_model, agent = agent, make_env_fns = eval_env_fns,
                                                         device=device, float_to_uint = float_to_uint)
+            metrics.update({'eval/mean_return': mean_return})
             experiment.log_video(file = path_to_video, name = 'eval/video', step = global_step)
             oc_model.training_mode(), agent.training_mode()
             # TODO check that target models preserve their weights
@@ -230,7 +231,6 @@ def main(config):
         rollout_buffer.reset_trajectories()
         metrics.update({'ppo/explained_variance': explained_variance, 
                         'ppo/steps_per_second': int(global_step / (time.time() - start_time))})
-        metrics.update({'eval/mean_return': mean_return})
         experiment.log_metrics(metrics.convert_to_dict(), step = global_step)
         os.remove(path_to_video)
         
