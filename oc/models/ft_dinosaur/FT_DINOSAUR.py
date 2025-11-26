@@ -164,7 +164,7 @@ class FT_DINOSAUR(OC_model):
         dino_loss = mse(decoder_output, target_encoder_output)
         mets = {'total_loss': dino_loss.detach().cpu(),
                 'dino_loss': dino_loss.detach().cpu()}
-        return dino_loss
+        return dino_loss, mets
     
     def calculate_validation_data(self, obs):
         mse = torch.nn.MSELoss(reduction = "mean")

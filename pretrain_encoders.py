@@ -91,7 +91,7 @@ def main(config):
                                          image_minmax = (0, 255), step = i)
                 model.training_mode()
                 
-            if (i == (config.max_steps - 5)):
+            if (i == (config.max_steps - 5_000)):
                 torch.save(model.state_dict(), model_save_path + f';step:{i}')
                 
             i += 1
