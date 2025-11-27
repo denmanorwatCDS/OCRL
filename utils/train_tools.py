@@ -1,4 +1,3 @@
-import os
 import envs
 import gym
 import random
@@ -6,23 +5,23 @@ import torch
 import numpy as np
 
 class NormalizationWrapper(gym.Wrapper):
-    def __init__(self, env, min_val, max_val):
+    def __init__(self, env, obs_preprocessor):
         super().__init__(env)
         new_shape = tuple([env.observation_space.shape[2], *env.observation_space.shape[0:2]])
         box = gym.spaces.box.Box(shape = new_shape, high = np.ones(new_shape), 
                                  low = -1 * np.ones(new_shape), dtype = np.float32)
         self.observation_space = box
-        self.min_val, self.max_val = min_val, max_val
+        self.obs_preprocessor = obs_preprocessor
 
     def step(self, action):
         obs, reward, done, info = self.env.step(action)
-        obs = (obs / 255.0 * (self.max_val - self.min_val)) + self.min_val
+        obs = self.obs_preprocessor(obs)
         obs = np.transpose(obs, (2, 0, 1))
         return obs, reward, done, info
     
     def reset(self):
         obs = self.env.reset()
-        obs = (obs / 255.0 * (self.max_val - self.min_val)) + self.min_val
+        obs = self.obs_preprocessor(obs)
         obs = np.transpose(obs, (2, 0, 1))
         return obs
     
@@ -94,7 +93,12 @@ def update_curves_(curve_dict, metrics):
             curve_dict[metric_name].append(metric_value)
 
 def get_uint_to_float(min_val, max_val):
-    return lambda x: (x.to(torch.float32) / 255 * (max_val - min_val) + min_val)
+    torch_uint_to_float = lambda x: (x.to(torch.float32) / 255 * (max_val - min_val) + min_val)
+    numpy_uint_to_float = lambda x: (x.astype(np.float32) / 255 * (max_val - min_val) + min_val)
+    return torch_uint_to_float, numpy_uint_to_float
+
+def get_float_to_uint(min_val, max_val):
+    return lambda x: ((x - min_val) / (max_val - min_val) * 255).to(torch.uint8)
 
 def stop_oc_optimizer_(oc_model, optimizer_config):
     for module_name in oc_model.get_grouped_parameters().keys():

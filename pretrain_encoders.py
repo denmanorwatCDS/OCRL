@@ -85,10 +85,7 @@ def main(config):
             
             if (i % 10_000 == 0):
                 model.inference_mode()
-                if (i % 30_000 == 0):
-                    logs, imgs = evaluate_ocr_model(model = model, val_dataloader = val_dataloader, full_eval = True)
-                else:
-                    logs, imgs = evaluate_ocr_model(model = model, val_dataloader = val_dataloader)
+                logs, imgs = evaluate_ocr_model(model = model, val_dataloader = val_dataloader)
                 experiment.log_metrics({f'val/{key}': logs[key] for key in logs.keys()}, step = i)
                 for key in imgs.keys():
                     experiment.log_image(image_data = imgs[key], name = f'val/{key}', 
