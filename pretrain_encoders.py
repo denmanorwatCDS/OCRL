@@ -13,8 +13,6 @@ from data_utils.H5_dataset import H5Dataset
 from utils.eval_tools import evaluate_ocr_model
 from utils.train_tools import get_model_name, get_uint_to_float
 
-import numpy as np
-
 @hydra.main(config_path="configs/", config_name="train_ocr")
 def main(config):
     PATH_TO_PRETRAIN_ENCODERS_DOT_PY = sys.path[0]
@@ -35,7 +33,6 @@ def main(config):
 
     # TODO train augmentations: shortest_size_resize (bicubic), hflip for train
     # TODO val augmentations: central_resize (bicubic for images, nearest neighbour for masks)
-
     if config.ocr['name'] == 'FT_DINOSAUR':
         import cv2
         from albumentations import ColorJitter, RandomResizedCrop, Rotate, HorizontalFlip, Compose
@@ -93,12 +90,10 @@ def main(config):
                 model.training_mode()
                 if best_loss > logs['total_loss']:
                     best_loss, best_model, best_idx = logs['total_loss'], model.state_dict(), i
-                    if i >= config.max_steps - 30_000:
-                        torch.save(best_model, model_save_path + f';step:{best_idx}')
                 
-                if (i >= config.max_steps - 30_000) and not has_saved:
-                    has_saved = True
-                    torch.save(best_model, model_save_path + f';step:{best_idx}')
+            if (i >= config.max_steps - 5_000) and not has_saved:
+                has_saved = True
+                torch.save(best_model, model_save_path + f';step:{best_idx}')
                 
             i += 1
             if i > config.max_steps:
