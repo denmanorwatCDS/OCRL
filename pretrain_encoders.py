@@ -47,7 +47,7 @@ def main(config):
     else:
         augment = lambda x: x
 
-    uint_to_float = get_uint_to_float(config.ocr.image_limits[0], config.ocr.image_limits[1])
+    uint_to_float, _ = get_uint_to_float(config.ocr.image_limits[0], config.ocr.image_limits[1])
 
     train_dataset = H5Dataset(datafile = path_to_target_dataset, uint_to_float = uint_to_float, 
                               use_future = config.ocr.slotattr.matching_loss.use, 
@@ -87,9 +87,10 @@ def main(config):
                 for key in imgs.keys():
                     experiment.log_image(image_data = imgs[key], name = f'val/{key}', 
                                          image_minmax = (0, 255), step = i)
-                model.training_mode()
                 if best_loss > logs['total_loss']:
                     best_loss, best_model, best_idx = logs['total_loss'], model.state_dict(), i
+                
+                model.training_mode()
                 
             if (i >= config.max_steps - 5_000) and not has_saved:
                 has_saved = True
