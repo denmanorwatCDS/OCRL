@@ -51,7 +51,7 @@ def infer_obs_action_shape(envs):
 
     return obs_shape, is_discrete, agent_action_data, action_shape
 
-def make_env(env_config, gamma, ocr_min_val, ocr_max_val, seed = 0, rank = 0):
+def make_env(env_config, gamma, obs_preprocessor, seed = 0, rank = 0):
     if env_config.env == 'HalfCheetah-v3':
         env = gym.make("HalfCheetah-v3")
         env = gym.wrappers.FlattenObservation(env)
@@ -68,7 +68,7 @@ def make_env(env_config, gamma, ocr_min_val, ocr_max_val, seed = 0, rank = 0):
         env = gym.wrappers.NormalizeReward(env, gamma = gamma)
     else:
         env = getattr(envs, env_config.env)(env_config, seed + rank)
-        env = NormalizationWrapper(env, min_val = ocr_min_val, max_val = ocr_max_val)
+        env = NormalizationWrapper(env, obs_preprocessor = obs_preprocessor)
         env = gym.wrappers.RecordEpisodeStatistics(env)
         if not isinstance(env.action_space, gym.spaces.Discrete):
             env = gym.wrappers.ClipAction(env)
