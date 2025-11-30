@@ -120,7 +120,7 @@ def main(config):
     
     metrics = Metrics()
     oc_model.inference_mode()
-    logs_before_ppg, imgs_before_ppg = evaluate_ocr_model(oc_model, val_dataloader)
+    logs_before_ppg, imgs_before_ppg = evaluate_ocr_model(oc_model, val_dataloader, eval_steps=10)
     oc_model.training_mode()
     log_ppg_results(experiment = experiment, step = 0, 
                     logs_before_ppg = logs_before_ppg, imgs_before_ppg = imgs_before_ppg,
@@ -194,7 +194,7 @@ def main(config):
             optimizer.optimizer_zero_grad()
             # Evaluate agent
             oc_model.inference_mode(), agent.inference_mode()
-            logs_before_ppg, imgs_before_ppg = evaluate_ocr_model(oc_model, val_dataloader)
+            logs_before_ppg, imgs_before_ppg = evaluate_ocr_model(oc_model, val_dataloader, eval_steps=10)
             path_to_video, mean_return = evaluate_agent(oc_model = oc_model, agent = agent, make_env_fns = eval_env_fns,
                                                         device = device, float_to_uint = float_to_uint)
             metrics.update({'eval/mean_return': mean_return})
@@ -224,7 +224,7 @@ def main(config):
                 total_loss.backward()
                 metrics.update(optimizer.optimizer_step('oc'))
             oc_model.inference_mode()
-            logs_after_ppg, imgs_after_ppg = evaluate_ocr_model(oc_model, val_dataloader)
+            logs_after_ppg, imgs_after_ppg = evaluate_ocr_model(oc_model, val_dataloader, eval_steps=10)
             oc_model.training_mode()
             target_oc_model = deepcopy(oc_model)
             log_ppg_results(experiment = experiment, step = global_step, 

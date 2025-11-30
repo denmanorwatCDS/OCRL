@@ -82,7 +82,7 @@ def calculate_ari(true_masks, pred_masks, foreground=False):
 
     return aris
 
-def evaluate_ocr_model(model, val_dataloader, full_eval = False):
+def evaluate_ocr_model(model, val_dataloader, full_eval = False, eval_steps=250):
     # OCR logging
     for j, batch in enumerate(val_dataloader):
         mets = model.calculate_validation_data(batch['obss'].cuda())
