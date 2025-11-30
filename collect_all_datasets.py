@@ -4,12 +4,12 @@ import numpy as np
 import hydra
 from omegaconf import OmegaConf
 
-num_tr = 1_000_000
-num_val = 10_000
+num_tr = 10_000
+num_val = 1_000
 data_path = '/media/denis/data'
 
 num_proc = 10
-chunks = 50
+chunks = 2
 
 def collect_data(config, data_path, img_path, obs_size, reset_after_each_step, env_type):
     print('Collecting data...')

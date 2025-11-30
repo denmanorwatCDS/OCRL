@@ -95,7 +95,7 @@ class FeatureDropout(nn.Module):
                        fmap_size, device):
         super(FeatureDropout, self).__init__()
         self.fmap_size = fmap_size
-        self.feature_dropout_embed = nn.Parameter(data = 2 * (torch.rand(fmap_size).to(device) - 0.5))
+        self.feature_dropout_embed = nn.Parameter(data = 0.02 * (torch.rand(fmap_size).to(device) - 0.5))
         self.feature_dropout_proba = feature_dropout_proba
         self.max_features_dropped, self.min_features_dropped = max_features_dropped, min_features_dropped
         self.do_dropout = True

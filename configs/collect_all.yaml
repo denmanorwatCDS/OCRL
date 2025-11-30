@@ -30,9 +30,3 @@ envs:
     type: Shapes
     env_yaml: target-N4C4S3S1.yaml
     reset_after_each_step: False
-
-  pong:
-    name: ClassicalPong
-    type: Pong
-    env_yaml: pong.yaml
-    reset_after_each_step: False
