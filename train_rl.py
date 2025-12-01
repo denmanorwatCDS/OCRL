@@ -123,7 +123,7 @@ def main(config):
     oc_logs, oc_images = evaluate_ocr_model(oc_model, val_dataloader, eval_steps = 10)
     oc_model.training_mode()
     log_oc_results(experiment = experiment, step = global_step, 
-                   oc_logs = oc_logs, oc_imgs = oc_images, curves = {})
+                   oc_logs = oc_logs, oc_imgs = oc_images)
     target_oc_model = deepcopy(oc_model)
     for iteration in range(1, int(config.max_steps + 1) // config.sb3.n_steps):
         # Collect new rollout buffer
@@ -200,7 +200,7 @@ def main(config):
             metrics.update({'eval/mean_return': mean_return})
             experiment.log_video(file = path_to_video, name = 'eval/video', step = global_step)
             log_oc_results(experiment = experiment, step = global_step, 
-                           oc_logs = oc_logs, oc_imgs = oc_images, curves = ppg_curves)
+                           oc_logs = oc_logs, oc_imgs = oc_images)
             oc_model.training_mode(), agent.training_mode()
         
         # PPG stage (if needed)
