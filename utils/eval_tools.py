@@ -201,18 +201,13 @@ def calculate_explained_variance(y_true, y_pred):
     var_y = np.var(y_true)
     return np.nan if var_y == 0 else 1 - np.var(y_true - y_pred) / var_y
 
-def log_ppg_results(experiment, step, 
-                    logs_before_ppg, imgs_before_ppg, logs_after_ppg, imgs_after_ppg, curves):
-    experiment.log_metrics({f'before_ppg/{key}': logs_before_ppg[key] for key in logs_before_ppg.keys()}, step = step)
-    for key in imgs_before_ppg.keys():
-        experiment.log_image(image_data = imgs_before_ppg[key], name = f'before_ppg/{key}', 
+def log_oc_results(experiment, step, oc_logs, oc_imgs):
+    experiment.log_metrics({f'eval/{key}': oc_logs[key] for key in oc_logs.keys()}, step = step)
+    for key in oc_imgs.keys():
+        experiment.log_image(image_data = oc_imgs[key], name = f'eval/{key}', 
                              image_minmax = (0, 255), step = step)
         
-    experiment.log_metrics({f'after_ppg/{key}': logs_after_ppg[key] for key in logs_after_ppg.keys()}, step = step)
-    for key in imgs_after_ppg.keys():
-        experiment.log_image(image_data = imgs_after_ppg[key], name = f'after_ppg/{key}', 
-                             image_minmax = (0, 255), step = step)
-        
+def log_ppg_results(experiment, curves, step):    
     for key, value in curves.items():
         x = np.arange(len(curves[key]))
         experiment.log_curve(x = x, y = value, name = f'ppg/{key}', step = step)

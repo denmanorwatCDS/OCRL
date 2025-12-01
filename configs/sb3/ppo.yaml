@@ -13,6 +13,7 @@ ppg_freq: 8
 ppg_epochs: 8
 rollout_epochs: 10
 pretrain_steps: 30_000
+eval_freq: 16_384
 
 optimizer:
     policy_optimizer:
