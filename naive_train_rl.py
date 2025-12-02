@@ -20,7 +20,8 @@ from RL.policy import Policy
 from RL.rollout_buffer import OCRolloutBuffer
 from utils.train_tools import infer_obs_action_shape, make_env, update_curves_, get_uint_to_float, get_float_to_uint, stop_oc_optimizer_
 from data_utils.H5_dataset import H5Dataset
-from utils.eval_tools import calculate_explained_variance, evaluate_ocr_model, evaluate_agent, get_episodic_metrics, log_ppg_results, Metrics
+from utils.eval_tools import calculate_explained_variance, evaluate_ocr_model, evaluate_agent, get_episodic_metrics, \
+    log_oc_results, log_ppg_results, Metrics
 
 @hydra.main(config_path="configs/", config_name="train_rl")
 def main(config):
@@ -120,15 +121,14 @@ def main(config):
     
     metrics = Metrics()
     oc_model.inference_mode()
-    logs_before_ppg, imgs_before_ppg = evaluate_ocr_model(oc_model, val_dataloader, eval_steps=10)
+    oc_logs, oc_images = evaluate_ocr_model(oc_model, val_dataloader, eval_steps = 10)
     oc_model.training_mode()
-    log_ppg_results(experiment = experiment, step = 0, 
-                    logs_before_ppg = logs_before_ppg, imgs_before_ppg = imgs_before_ppg,
-                    logs_after_ppg = logs_before_ppg, imgs_after_ppg = imgs_before_ppg,
-                    curves = {})
-    target_oc_model = deepcopy(oc_model)
+    log_oc_results(experiment = experiment, step = global_step, 
+                   oc_logs = oc_logs, oc_imgs = oc_images)
     for iteration in range(1, int(config.max_steps + 1) // config.sb3.n_steps):
+        # Collect new rollout buffer
         oc_model.inference_mode(), agent.inference_mode()
+        prev_global_step = global_step if global_step != 0 else -1
         for step in range(0, config.sb3.n_steps, config.num_envs):
             global_step += config.num_envs
             # TODO Check obs are in range [0; 1]
@@ -147,8 +147,9 @@ def main(config):
             metrics.multiple_update(get_episodic_metrics(next_done, infos))
         with torch.no_grad():
             next_value = agent.get_value(oc_model.get_slots(next_obs, training = False))
-        rollout_buffer.finalize_tensors_calculate_and_store_GAE(last_done = next_done, 
-                                                                last_value = next_value)
+        rollout_buffer.finalize_tensors_calculate_and_store_GAE(last_done = next_done, last_value = next_value)
+
+        # Train agent
         agent.training_mode()
         if config.sb3.train_feature_extractor:
             oc_model.training_mode()
@@ -175,7 +176,7 @@ def main(config):
             entropy_loss = -entropy.mean()
             alignment_loss = torch.Tensor([0]).to(device)
             if config.sb3.train_feature_extractor:
-                alignment_loss, _ = oc_model.get_loss(start_obs, future_obs = None, do_dropout = False)
+                alignment_loss = oc_model.get_loss(start_obs = start_obs, future_obs = future_obs, do_dropout = True)
             loss = pg_loss + config.sb3.ent_coef * entropy_loss + config.sb3.vf_coef * v_loss + alignment_loss
             optimizer.optimizer_zero_grad()
             loss.backward()
@@ -185,17 +186,17 @@ def main(config):
                             'ppo/approx_kl': approx_kl.item(), 'ppo/old_approx_kl': old_approx_kl.item(), 
                             'ppo/clip_fraction': clipfracs})
 
-        oc_model.inference_mode()
-        logs_after_ppg, imgs_after_ppg = evaluate_ocr_model(oc_model, val_dataloader, eval_steps = 10)
-        path_to_video, mean_return = evaluate_agent(oc_model = oc_model, agent = agent, make_env_fns = eval_env_fns,
+        # Evaluation stage
+        if (global_step // config.sb3.eval_freq - prev_global_step // config.sb3.eval_freq) != 0:
+            oc_model.inference_mode(), agent.inference_mode()
+            oc_logs, oc_images = evaluate_ocr_model(oc_model, val_dataloader, eval_steps = 10)
+            path_to_video, mean_return = evaluate_agent(oc_model = oc_model, agent = agent, make_env_fns = eval_env_fns,
                                                         device = device, float_to_uint = float_to_uint)
-        metrics.update({'eval/mean_return': mean_return})
-        experiment.log_video(file = path_to_video, name = 'eval/video', step = global_step)
-        oc_model.training_mode()
-        log_ppg_results(experiment = experiment, step = global_step, 
-                        logs_before_ppg = logs_before_ppg, imgs_before_ppg = imgs_before_ppg,
-                        logs_after_ppg = logs_after_ppg, imgs_after_ppg = imgs_after_ppg,
-                        curves = {})
+            metrics.update({'eval/mean_return': mean_return})
+            experiment.log_video(file = path_to_video, name = 'eval/video', step = global_step)
+            log_oc_results(experiment = experiment, step = global_step, 
+                           oc_logs = oc_logs, oc_imgs = oc_images)
+            oc_model.training_mode(), agent.training_mode()
 
         y_true, y_pred = rollout_buffer.get_return_value()
         explained_variance = calculate_explained_variance(y_true, y_pred)

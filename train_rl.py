@@ -20,7 +20,8 @@ from RL.policy import Policy
 from RL.rollout_buffer import OCRolloutBuffer
 from utils.train_tools import infer_obs_action_shape, make_env, update_curves_, get_uint_to_float, get_float_to_uint, stop_oc_optimizer_
 from data_utils.H5_dataset import H5Dataset
-from utils.eval_tools import calculate_explained_variance, evaluate_ocr_model, evaluate_agent, get_episodic_metrics, log_oc_results, log_ppg_results, Metrics
+from utils.eval_tools import calculate_explained_variance, evaluate_ocr_model, evaluate_agent, get_episodic_metrics, \
+    log_oc_results, log_ppg_results, Metrics
 
 @hydra.main(config_path="configs/", config_name="train_rl")
 def main(config):
