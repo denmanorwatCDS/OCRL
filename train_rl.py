@@ -31,6 +31,7 @@ def main(config):
         project_name = 'OC_RL',
         workspace = 'denmanorwat'
         )
+    prefix = 'MINE' if not ('orig' in config.pretrained_model.save_name) else 'ORIG'
     frozen_name = 'Unfrozen' if config.sb3.train_feature_extractor else 'Frozen'
     slot_name = ':'.join(['slot', config.ocr.slotattr.preinit_type])
     wd_array = []
@@ -39,7 +40,7 @@ def main(config):
             wd_array.append(':'.join([key.replace('_optimizer', '') + '_wd', 
                                       str(config.ocr.optimizer[key]['weight_decay'])]))
     dropout_name = ':'.join(['drop_proba', str(config.ocr.feature_dropout.feature_dropout_proba)])
-    name = ' '.join([config.env.env, config.ocr.name, frozen_name, slot_name, *wd_array, dropout_name])
+    name = ' '.join([prefix, config.env.env, config.ocr.name, frozen_name, slot_name, *wd_array, dropout_name])
     experiment.set_name(name)
     dataset_path = '/'.join([config.dataset_root_path, 
                              f"{config.env.obs_size}x{config.env.obs_size}", 
