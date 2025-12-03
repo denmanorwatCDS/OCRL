@@ -4,14 +4,12 @@ import numpy as np
 import hydra
 from omegaconf import OmegaConf
 
-num_tr = 10_000
-num_val = 1_000
+num_val = 5_000
 data_path = '/media/denis/data'
 
 num_proc = 10
-chunks = 2
 
-def collect_data(config, data_path, img_path, obs_size, reset_after_each_step, env_type):
+def collect_data(config, num_tr, chunks, data_path, img_path, obs_size, reset_after_each_step, env_type):
     print('Collecting data...')
     from envs.collect_data.collect_data_from_env import parallel_get_data
     config.obs_size = obs_size
@@ -71,7 +69,9 @@ def main(config):
                 agg_conf.merge_with(env_config)
             else:
                 agg_conf = env_config
-            collect_data(agg_conf, data_path = dataset_folder, img_path = examples_folder, 
-                         obs_size = obs_size, reset_after_each_step = reset_after_each_step, env_type = env_type)
+            
+            collect_data(agg_conf, num_tr = config.envs[dict_key]['dataset_size'], chunks=config.envs[dict_key]['chunks'], 
+                         data_path = dataset_folder, img_path = examples_folder, obs_size = obs_size, 
+                         reset_after_each_step = reset_after_each_step, env_type = env_type)
 
 main()

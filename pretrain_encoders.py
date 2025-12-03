@@ -1,8 +1,7 @@
 import hydra
 import torch
 import omegaconf
-import os, sys, random
-import random
+import os, sys
 
 from comet_ml import Experiment
 from torch.utils.data import DataLoader

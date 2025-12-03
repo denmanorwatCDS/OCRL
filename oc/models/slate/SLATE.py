@@ -196,13 +196,15 @@ class SLATE(OC_model):
         projected_slots = self._slotproj(slots)
         decoder_output = self._tfdec(z_emb[:, :-1], projected_slots)
         pred = self._out(decoder_output)
-        return pred
+        return (self._dvae.decode(z), pred)
     
     def get_oc_alignment_loss(self, gt_decoded, decoded):
-        batch_qty, patch_qty, class_qty = gt_decoded.shape
-        gt_decoded, decoded = gt_decoded.reshape(batch_qty*patch_qty, class_qty), decoded.reshape(batch_qty*patch_qty, class_qty)
-        gt_decoded = torch.softmax(gt_decoded, dim = -1)
-        return cross_entropy_loss(decoded, gt_decoded)
+        gt_dvae, gt_cross_ent = gt_decoded
+        dvae, cross_ent = decoded
+        batch_qty, patch_qty, class_qty = gt_cross_ent.shape
+        gt_cross_ent, cross_ent = gt_cross_ent.reshape(batch_qty*patch_qty, class_qty), cross_ent.reshape(batch_qty*patch_qty, class_qty)
+        gt_cross_ent = torch.softmax(gt_cross_ent, dim = -1)
+        return cross_entropy_loss(cross_ent, gt_cross_ent) + mse_loss(dvae, gt_dvae)
     
     def calculate_validation_data(self, obs):
         with torch.no_grad():

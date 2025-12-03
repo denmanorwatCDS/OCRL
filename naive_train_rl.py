@@ -1,8 +1,5 @@
 from comet_ml import Experiment
-from copy import deepcopy
-from torch.distributions.kl import kl_divergence
 from torch.utils.data import DataLoader
-import torch.nn.functional as F
 
 import sys
 import h5py
@@ -18,10 +15,10 @@ from oc import ocrs
 from oc.optimizer.optimizer import OCOptimizer
 from RL.policy import Policy
 from RL.rollout_buffer import OCRolloutBuffer
-from utils.train_tools import infer_obs_action_shape, make_env, update_curves_, get_uint_to_float, get_float_to_uint, stop_oc_optimizer_
+from utils.train_tools import infer_obs_action_shape, make_env, get_uint_to_float, get_float_to_uint, stop_oc_optimizer_
 from data_utils.H5_dataset import H5Dataset
 from utils.eval_tools import calculate_explained_variance, evaluate_ocr_model, evaluate_agent, get_episodic_metrics, \
-    log_oc_results, log_ppg_results, Metrics
+    log_oc_results, Metrics
 
 @hydra.main(config_path="configs/", config_name="train_rl")
 def main(config):

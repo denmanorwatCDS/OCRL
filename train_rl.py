@@ -181,7 +181,6 @@ def main(config):
                 with torch.no_grad():
                     target_slots = target_oc_model.get_slots(obs = start_obs, training = True)
                     gt_decoded = target_oc_model.decode_slots(obs = start_obs, slots = target_slots)
-                slots = oc_model.get_slots(obs = start_obs, training = True)
                 decoded = oc_model.decode_slots(obs = start_obs, slots = slots)
                 alignment_loss = oc_model.get_oc_alignment_loss(gt_decoded = gt_decoded, decoded = decoded)
             loss = pg_loss + config.sb3.ent_coef * entropy_loss + config.sb3.vf_coef * v_loss + alignment_loss

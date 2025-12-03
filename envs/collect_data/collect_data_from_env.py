@@ -99,7 +99,7 @@ def parallel_get_data(env, env_type, num_proc, num_data, reset_after_each_step, 
         if render_masks:
             masks.extend(value["masks"])
         if img_path is not None and not render_masks:
-            for i in range(10):
+            for i in range(1):
                 flag = value['dones'][i]
                 Image.fromarray(value["obss"][i]).save(f'{img_path}/Example_{key}_{i}_done={flag}.png')
     return obss, masks, dones

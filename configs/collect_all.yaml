@@ -1,32 +1,42 @@
 obs_sizes: [64, 224]
 
 envs:
-  cw_diverse:
-    name: HighDiversityOcclusionCW
-    type: Causal
-    env_yaml: cw-notarget-N4C11S1S1-hard.yaml
-    reset_after_each_step: False
-
   cw_env:
     name: ClassicalCW
     type: Causal
     env_yaml: cw-target-N4C4S1S1-hard.yaml
     reset_after_each_step: False
-
-  sh_diverse:
-    name: HighDiversityOcclusionSH
-    type: Shapes
-    env_yaml: random-N5C4S4S2.yaml
-    reset_after_each_step: True
+    dataset_size: 50_000
+    chunks: 2
 
   sh_odd:
     name: ClassicalOddOneOutSH
     type: Shapes
     env_yaml: odd-one-out-N4C2S2S1-oc.yaml
     reset_after_each_step: False
+    dataset_size: 50_000
+    chunks: 2
 
   sh_target:
     name: ClassicalTargetSH
     type: Shapes
     env_yaml: target-N4C4S3S1.yaml
     reset_after_each_step: False
+    dataset_size: 50_000
+    chunks: 2
+
+  sh_diverse:
+    name: HighDiversityOcclusionSH
+    type: Shapes
+    env_yaml: random-N5C4S4S2.yaml
+    reset_after_each_step: True
+    dataset_size: 1_000_000
+    chunks: 50
+
+  cw_diverse:
+    name: HighDiversityOcclusionCW
+    type: Causal
+    env_yaml: cw-notarget-N4C11S1S1-hard.yaml
+    reset_after_each_step: False
+    dataset_size: 1_000_000
+    chunks: 50
