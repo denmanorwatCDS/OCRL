@@ -135,7 +135,7 @@ def main(config):
             global_step += config.num_envs
             # TODO Check obs are in range [0; 1]
             with torch.no_grad():
-                slots = oc_model.get_slots(next_obs, training = False)
+                slots = oc_model.get_slots(next_obs, training = False)[0]
                 action, logprob, entropy = agent.get_action_logprob_entropy(slots)
                 value = agent.get_value(slots)
             
@@ -148,7 +148,7 @@ def main(config):
             
             metrics.multiple_update(get_episodic_metrics(next_done, infos))
         with torch.no_grad():
-            next_value = agent.get_value(oc_model.get_slots(next_obs, training = False))
+            next_value = agent.get_value(oc_model.get_slots(next_obs, training = False)[0])
         rollout_buffer.finalize_tensors_calculate_and_store_GAE(last_done = next_done, last_value = next_value)
 
         # Train agent
@@ -156,7 +156,7 @@ def main(config):
         if config.sb3.train_feature_extractor:
             oc_model.training_mode()
         for batch, start_obs, future_obs in rollout_buffer.convert_transitions_to_rollout():
-            slots = oc_model.get_slots(batch['obs'], training = False)
+            slots, init_slots = oc_model.get_slots(batch['obs'], training = False)
             if not config.sb3.train_feature_extractor:
                 slots = slots.detach()
             _, newlogprob, entropy = agent.get_action_logprob_entropy(slots, batch['action'])
@@ -179,7 +179,7 @@ def main(config):
             alignment_loss = torch.Tensor([0]).to(device)
             if config.sb3.train_feature_extractor:
                 with torch.no_grad():
-                    target_slots = target_oc_model.get_slots(obs = start_obs, training = True)
+                    target_slots = target_oc_model.get_slots(obs = start_obs, training = True, init_slots = init_slots)[0]
                     gt_decoded = target_oc_model.decode_slots(obs = start_obs, slots = target_slots)
                 decoded = oc_model.decode_slots(obs = start_obs, slots = slots)
                 alignment_loss = oc_model.get_oc_alignment_loss(gt_decoded = gt_decoded, decoded = decoded)
@@ -213,11 +213,11 @@ def main(config):
 
             for start_obs, future_obs in rollout_buffer.get_obs_generator(mode = 'ppg'):
                 with torch.no_grad():
-                    target_slots = target_oc_model.get_slots(start_obs, training = True)
+                    target_slots, init_slots = target_oc_model.get_slots(start_obs, training = True)
                     target_distribution = target_agent.get_action_distribution(target_slots)
                     target_values = target_agent.get_value(target_slots)
-                oc_loss, loss_metrics = oc_model.get_loss(obs = start_obs, future_obs = future_obs, do_dropout = True)
-                slots = oc_model.get_slots(start_obs, training = True)
+                oc_loss, loss_metrics = oc_model.get_loss(obs = start_obs, future_obs = future_obs, do_dropout = True, init_slots = init_slots)
+                slots = oc_model.get_slots(start_obs, training = True, init_slots = init_slots)[0]
                 distribution, values = agent.get_action_distribution(slots), agent.get_value(slots)
                 kl_loss = torch.mean(kl_divergence(target_distribution, distribution))
                 vf_loss = config.sb3.vf_coef * F.mse_loss(values, target_values)

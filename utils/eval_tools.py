@@ -166,7 +166,7 @@ def evaluate_agent(oc_model, agent, make_env_fns, device, float_to_uint, eval_ep
     black_screen = torch.permute(torch.zeros(next_obs[0].shape, dtype = torch.uint8), dims = (1, 2, 0)).to(device)
     with torch.no_grad():
         while total_dones < eval_episodes:
-            slots = oc_model.get_slots(next_obs, training = False)
+            slots = oc_model.get_slots(next_obs, training = False)[0]
             action, *_ = agent.get_action_logprob_entropy(slots)
             next_obs, rewards, next_dones, _ = eval_envs.step(action.cpu().numpy())
             next_obs = torch.Tensor(next_obs).to(device)

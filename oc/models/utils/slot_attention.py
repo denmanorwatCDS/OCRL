@@ -147,18 +147,21 @@ class SlotAttention(nn.Module):
         
         return slots, attn_vis, all_slots
     
-    def prepare_slots(self, x):
+    def prepare_slots(self, x, init_slots = None):
         B, *_ = x.size()
         if self.preinit_type == 'classic':
-            init_slots = x.new_empty(B, self.num_slots, self.slot_size).normal_()
-            init_slots = self.slot_mu + torch.exp(self.slot_log_sigma) * init_slots
+            if init_slots is None:
+                init_slots = x.new_empty(B, self.num_slots, self.slot_size).normal_()
+            slots = self.slot_mu + torch.exp(self.slot_log_sigma) * init_slots
         elif self.preinit_type == 'trainable':
-            init_slots = self.initial_slots.repeat((B, 1, 1))
+            assert init_slots is None, 'Init slots are not supported with trainable mode'
+            slots = self.initial_slots.repeat((B, 1, 1))
         elif self.preinit_type == 'statistics':
+            assert init_slots is None, 'Init slots are not supported with statistics mode'
             init_slots = x.new_empty(B, self.num_slots, self.slot_size).normal_()
             mean, std = self.feature_dist.calculate_mean_std()
-            init_slots = mean + init_slots * std
-        return init_slots
+            slots = mean + init_slots * std
+        return init_slots, slots
     
     def update_statistics(self, batch):
         with torch.no_grad():
@@ -225,18 +228,18 @@ class SlotAttentionModule(nn.Module):
             normalizer = normalizer
         )
 
-    def forward(self, input):
+    def forward(self, input, init_slots = None):
         # `image` has shape: [batch_size, img_channels, img_height, img_width].
         # `encoder_grid` has shape: [batch_size, pos_channels, enc_height, enc_width].
         x = self.mlp(self.layer_norm(input))
         # `x` has shape: [batch_size, enc_height * enc_width, cnn_hidden_size].
         # Slot Attention module.
-        slots = self.slot_attention.prepare_slots(input)
+        init_slots, slots = self.slot_attention.prepare_slots(input, init_slots)
         slots, attn = self.slot_attention(x, slots)
         # `slots` has shape: [batch_size, num_slots, slot_size].
         # `attn` has shape: [batch_size, enc_height * enc_width, num_slots].
 
-        return slots, attn
+        return slots, attn, init_slots
     
     def update_statistics(self, batch):
         self.slot_attention.update_statistics(batch)

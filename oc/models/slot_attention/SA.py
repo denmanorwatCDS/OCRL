@@ -73,7 +73,7 @@ class Slot_Attention(OC_model):
                 'slot': self._get_slot_params(),
                 'decoder': self._get_decoder_params()}
     
-    def _get_slots(self, obs, do_dropout, training):
+    def _get_slots(self, obs, do_dropout, training, init_slots = None):
         if do_dropout:
             self._patch_dropout.turn_on_dropout(), self._feature_dropout.turn_on_dropout()
         else:
@@ -87,21 +87,22 @@ class Slot_Attention(OC_model):
                 _feat = self._enc(obs)
                 self._slot_attention.update_statistics(_feat)
 
-        slots, enc_attns = self._slot_attention(features)
-        return slots, enc_attns
+        slots, enc_attns, init_slots = self._slot_attention(features)
+        return slots, enc_attns, init_slots
     
-    def get_slots(self, obs, training):
-        return self._get_slots(obs, do_dropout = False, training = training)[0]
+    def get_slots(self, obs, training, init_slots = None):
+        slots, _, init_slots = self._get_slots(obs, do_dropout = False, training = training, init_slots = init_slots)
+        return slots, init_slots
     
-    def get_loss(self, obs, future_obs, do_dropout):
-        slots, _ = self._get_slots(obs, do_dropout = do_dropout, training = True)
+    def get_loss(self, obs, future_obs, do_dropout, init_slots = None):
+        slots, *_ = self._get_slots(obs, do_dropout = do_dropout, training = True, init_slots = init_slots)
         recon, _ = self._dec(slots)
         hung_loss = 0
         SA_loss = mse_loss(obs, recon)
         mets = {'total_loss': SA_loss.detach().cpu(),
                 'SA_loss': SA_loss.detach().cpu()}
         if self.use_hungarian_loss:
-            future_slots = self._get_slots(future_obs, do_dropout = do_dropout, training = True)[0]
+            future_slots = self._get_slots(future_obs, do_dropout = do_dropout, training = True, init_slots = init_slots)[0]
             slots, future_slots = self.contrastive_projector(slots), self.contrastive_projector(future_slots)
             hung_loss = hungarian_loss(slots, future_slots) * self.hungarian_coef
             mets.update({'hungarian_loss': hung_loss.detach().cpu()})
@@ -116,7 +117,7 @@ class Slot_Attention(OC_model):
     
     def calculate_validation_data(self, obs):
         with torch.no_grad():
-            slots, enc_attns = self._get_slots(obs, do_dropout = False, training = False)
+            slots, enc_attns, _ = self._get_slots(obs, do_dropout = False, training = False, init_slots = None)
             enc_attns = enc_attns.transpose(-1, -2)
             
             recon, dec_attns = self._dec(slots)
@@ -125,7 +126,7 @@ class Slot_Attention(OC_model):
             enc_masked_imgs, enc_masks = self.convert_attns_to_masks(obs, enc_attns)
             dec_masked_imgs, dec_masks = self.convert_attns_to_masks(obs, dec_attns)
 
-            drop_slots, drop_enc_attns = self._get_slots(obs, do_dropout = True, training = False)
+            drop_slots, drop_enc_attns, _ = self._get_slots(obs, do_dropout = True, training = False, init_slots = None)
             drop_enc_attns = drop_enc_attns.transpose(-1, -2)
             
             drop_recon, drop_dec_attns = self._dec(drop_slots)

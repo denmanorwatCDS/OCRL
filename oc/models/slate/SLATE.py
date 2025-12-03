@@ -128,7 +128,7 @@ class SLATE(OC_model):
         z_hard = gumbel_softmax(z_logits, self._tau, True, dim=1).detach()
         return z, z_hard
     
-    def _get_slots(self, obs, do_dropout, training):
+    def _get_slots(self, obs, do_dropout, training, init_slots = None):
         if do_dropout:
             self._patch_dropout.turn_on_dropout(), self._feature_dropout.turn_on_dropout()
         else:
@@ -142,12 +142,13 @@ class SLATE(OC_model):
                 _feat = self._enc(obs)
                 self._slot_attention.update_statistics(_feat)
 
-        slots, enc_attns = self._slot_attention(features)
+        slots, enc_attns, init_slots = self._slot_attention(features, init_slots)
         
-        return slots, enc_attns
+        return slots, enc_attns, init_slots
     
-    def get_slots(self, obs, training):
-        return self._get_slots(obs, do_dropout = False, training = training)[0]
+    def get_slots(self, obs, training, init_slots = None):
+        slots, _, init_slots = self._get_slots(obs, do_dropout = False, training = training, init_slots = init_slots)
+        return slots, init_slots
     
     def _calculate_CE(self, obs, slots, z_hard):
         z_hard = z_hard.permute(0, 2, 3, 1).flatten(start_dim=1, end_dim=2)
@@ -162,14 +163,14 @@ class SLATE(OC_model):
         cross_entropy = cross_entropy_loss(pred.flatten(end_dim=1), z_hard.flatten(end_dim=1))
         return cross_entropy
     
-    def get_loss(self, obs, future_obs, do_dropout):
+    def get_loss(self, obs, future_obs, do_dropout, init_slots = None):
         # DVAE component of the loss
         z, z_hard = self._get_z(obs)
         dvae_recon = self._dvae.decode(z)
         dvae_mse = mse_loss(dvae_recon, obs)
 
         # SLATE component of the loss
-        slots, _ = self._get_slots(obs, do_dropout = do_dropout, training = True)
+        slots, *_ = self._get_slots(obs, do_dropout = do_dropout, training = True, init_slots = init_slots)
         cross_entropy = self._calculate_CE(obs, slots, z_hard = z_hard)
         
         total_loss = dvae_mse + cross_entropy
@@ -178,7 +179,7 @@ class SLATE(OC_model):
                 'cross_entropy': cross_entropy.detach().cpu()}
         hung_loss = 0
         if self.use_hungarian_loss:
-            future_slots = self._get_slots(future_obs, do_dropout = do_dropout, training = True)[0]
+            future_slots = self._get_slots(future_obs, do_dropout = do_dropout, training = True, init_slots = init_slots)[0]
             slots, future_slots = self.contrastive_projector(slots), self.contrastive_projector(future_slots)
             hung_loss = hungarian_loss(slots, future_slots) * self.hungarian_coef
             mets.update({'hungarian_loss': hung_loss.detach().cpu()})
@@ -213,13 +214,13 @@ class SLATE(OC_model):
             dvae_mse = mse_loss(dvae_recon, obs)
 
             # SLATE component of the loss
-            drop_slots, drop_enc_attns = self._get_slots(obs, do_dropout = True, training = False)
+            drop_slots, drop_enc_attns, _ = self._get_slots(obs, do_dropout = True, training = False, init_slots = None)
             drop_enc_attns = drop_enc_attns.transpose(-1, -2)
             drop_cross_entropy = self._calculate_CE(obs, drop_slots, z_hard = z_hard)
             drop_tr_recon = self._gen_imgs(drop_slots)
             drop_enc_masked_imgs, drop_enc_masks = self.convert_attns_to_masks(obs, drop_enc_attns)
 
-            slots, enc_attns = self._get_slots(obs, do_dropout = False, training = False)
+            slots, enc_attns, _ = self._get_slots(obs, do_dropout = False, training = False, init_slots = None)
             enc_attns = enc_attns.transpose(-1, -2)
             
             cross_entropy = self._calculate_CE(obs, slots, z_hard = z_hard)
