@@ -144,7 +144,7 @@ def main(config):
             
             metrics.multiple_update(get_episodic_metrics(next_done, infos))
         with torch.no_grad():
-            next_value = agent.get_value(oc_model.get_slots(next_obs, training = False))
+            next_value = agent.get_value(oc_model.get_slots(next_obs, training = False)[0])
         rollout_buffer.finalize_tensors_calculate_and_store_GAE(last_done = next_done, last_value = next_value)
 
         # Train agent
@@ -152,7 +152,7 @@ def main(config):
         if config.sb3.train_feature_extractor:
             oc_model.training_mode()
         for batch, start_obs, future_obs in rollout_buffer.convert_transitions_to_rollout():
-            slots = oc_model.get_slots(batch['obs'], training = False)
+            slots, init_slots = oc_model.get_slots(batch['obs'], training = False)
             if not config.sb3.train_feature_extractor:
                 slots = slots.detach()
             _, newlogprob, entropy = agent.get_action_logprob_entropy(slots, batch['action'])
@@ -174,7 +174,7 @@ def main(config):
             entropy_loss = -entropy.mean()
             alignment_loss = torch.Tensor([0]).to(device)
             if config.sb3.train_feature_extractor:
-                alignment_loss, _ = oc_model.get_loss(obs = start_obs, future_obs = future_obs, do_dropout = True)
+                alignment_loss, _ = oc_model.get_loss(obs = start_obs, future_obs = future_obs, do_dropout = True, init_slots = init_slots)
             loss = pg_loss + config.sb3.ent_coef * entropy_loss + config.sb3.vf_coef * v_loss + alignment_loss
             optimizer.optimizer_zero_grad()
             loss.backward()
