@@ -131,7 +131,7 @@ def main(config):
             global_step += config.num_envs
             # TODO Check obs are in range [0; 1]
             with torch.no_grad():
-                slots = oc_model.get_slots(next_obs, training = False)
+                slots = oc_model.get_slots(next_obs, training = False)[0]
                 action, logprob, entropy = agent.get_action_logprob_entropy(slots)
                 value = agent.get_value(slots)
             
