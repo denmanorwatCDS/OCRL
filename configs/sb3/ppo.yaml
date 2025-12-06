@@ -6,6 +6,7 @@ ent_coef: 0.0
 gamma: 0.99
 gae_lambda: 0.95
 vf_coef: 0.5
+alignment_coef: 0.1
 target_kl: null
 clip_range: 0.2
 bc_mult: 1.

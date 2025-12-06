@@ -183,7 +183,7 @@ def main(config):
                 #    gt_decoded = target_oc_model.decode_slots(obs = start_obs, slots = target_slots)
                 #decoded = oc_model.decode_slots(obs = start_obs, slots = slots)
                 alignment_loss = oc_model.get_loss(obs = start_obs, future_obs = future_obs, do_dropout = True, init_slots = init_slots)[0]
-            loss = pg_loss + config.sb3.ent_coef * entropy_loss + config.sb3.vf_coef * v_loss + alignment_loss
+            loss = pg_loss + config.sb3.ent_coef * entropy_loss + config.sb3.vf_coef * v_loss + config.sb3.alignment_coef * alignment_loss
             optimizer.optimizer_zero_grad()
             loss.backward()
             metrics.update(optimizer.optimizer_step('rl'))
