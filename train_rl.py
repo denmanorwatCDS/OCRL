@@ -230,6 +230,7 @@ def main(config):
                 metrics.update(optimizer.optimizer_step('oc'))
             target_oc_model = deepcopy(oc_model)
             log_ppg_results(experiment, ppg_curves, step = global_step)
+            optimizer.reset_optimizers()
 
         y_true, y_pred = rollout_buffer.get_return_value()
         explained_variance = calculate_explained_variance(y_true, y_pred)
