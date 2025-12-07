@@ -175,7 +175,7 @@ def main(config):
             alignment_loss = torch.Tensor([0]).to(device)
             if config.sb3.train_feature_extractor:
                 alignment_loss, _ = oc_model.get_loss(obs = start_obs, future_obs = future_obs, do_dropout = True, init_slots = init_slots)
-            loss = pg_loss + config.sb3.ent_coef * entropy_loss + config.sb3.vf_coef * v_loss + alignment_loss
+            loss = pg_loss + config.sb3.ent_coef * entropy_loss + config.sb3.vf_coef * v_loss + config.sb3.alignment_coef * alignment_loss
             optimizer.optimizer_zero_grad()
             loss.backward()
             metrics.update(optimizer.optimizer_step('rl'))
