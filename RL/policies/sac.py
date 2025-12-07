@@ -11,7 +11,7 @@ from networks.utils.parameter import ParameterModule
 class SAC(Policy):
     def __init__(self,
                  name,
-                 obs_length, task_length, action_length,
+                 obs_length, task_length, obj_qty, action_length,
                  actor_config, critic_config, pooler_config,
                  actor_lr, critic_lr, pooler_lr, log_alpha_lr,
                  actor_wd, critic_wd, pooler_wd, log_alpha_wd,
@@ -26,8 +26,8 @@ class SAC(Policy):
                  device,
                  discount):
         super(Policy, self).__init__()
-        self.pooler, self.is_pooler_trainable = get_pooler_network(name = pooler_config.name, obs_length = obs_length, skill_length = task_length,
-                                                                   pooler_config = pooler_config.kwargs)
+        self.pooler, self.is_pooler_trainable = get_pooler_network(name = pooler_config.name, obs_length = obs_length, skill_length = task_length, 
+                                                                   obj_qty = obj_qty, pooler_config = pooler_config.kwargs)
         self.pooler.to(device)
         super().__init__(name = name, device = device, feature_len = self.pooler.outp_dim, action_length = action_length,
                          account_for_action = True, actor_config = actor_config, critic_config = critic_config,
@@ -41,6 +41,7 @@ class SAC(Policy):
 
         self.target_critic1 = copy.deepcopy(self.critic1)
         self.target_critic2 = copy.deepcopy(self.critic2)
+        self.target_pooler = copy.deepcopy(self.pooler)
         
         self.tau = tau
         self._reward_scale_factor = scale_reward
@@ -67,47 +68,36 @@ class SAC(Policy):
         return False
     
     def eval(self):
-        self.actor.eval(), self.critic1.eval(), self.critic2.eval(), self.target_critic1.eval(), self.target_critic2.eval()
+        self.actor.eval(), self.critic1.eval(), self.critic2.eval(), self.target_critic1.eval(), self.target_critic2.eval(), self.target_pooler.eval()
+        if self.is_pooler_trainable:
+            self.pooler.eval()
 
     def train(self):
-        self.actor.train(), self.critic1.train(), self.critic2.train(), self.target_critic1.train(), self.target_critic2.train()
+        self.actor.train(), self.critic1.train(), self.critic2.train(), self.target_critic1.train(), self.target_critic2.train(), self.target_pooler.train()
+        if self.is_pooler_trainable:
+            self.pooler.train()
 
     def optimize_op(self, observations, next_observations, obj_idxs, options, actions, dones, rewards):
         logs = {}
-        cur_features = self.pooler(observations, options, obj_idxs)
-        next_features = self.pooler(next_observations, options, obj_idxs)
+        cur_features, next_features = self.pooler(observations, options, obj_idxs), self.pooler(next_observations, options, obj_idxs)
+        target_next_features = self.target_pooler(next_observations, options, obj_idxs)
         loss_qf, qf_logs = self._update_loss_qf(
             cur_features = cur_features,
             actions = actions,
-            next_features = next_features,
+            next_features = next_features, target_next_features = target_next_features,
             dones = dones,
             rewards = rewards * self._reward_scale_factor
         )
-        self._gradient_descent(
-            loss_qf,
-            optimizer_keys=['critic'] + (['pooler'] if self.is_pooler_trainable else []),
-            retain_graph=(True if self.is_pooler_trainable else False)
-        )
+        self._optim_zero_grad()
+        loss_qf.backward(retain_graph = True)
         
         new_action_log_probs, sacp_loss, sacp_logs = self._update_loss_sacp(cur_features = cur_features)
-        self._gradient_descent(
-            sacp_loss,
-            optimizer_keys=['actor'] + (['pooler'] if self.is_pooler_trainable else []),
-        )
+        sacp_loss.backward(retain_graph = True)
 
         loss_alpha, alpha_logs = self._update_loss_alpha(new_action_log_probs)
-        self._gradient_descent(
-            loss_alpha,
-            optimizer_keys=['log_alpha'],
-        )
+        loss_alpha.backward()
         logs.update({**qf_logs, **sacp_logs, **alpha_logs})
-        if self.is_pooler_trainable:
-            """
-            logs.update({'Skill token mean': torch.mean(self.pooler.skill_token.detach().cpu()),
-                         'Skill token std': torch.std(self.pooler.skill_token.detach().cpu()),
-                         'Readout token mean': torch.mean(self.pooler.readout_token.detach().cpu()),
-                         'Readout token std': torch.std(self.pooler.readout_token.detach().cpu())})
-            """
+        self._optim_step()
         self._update_targets()
         return logs
     
@@ -125,26 +115,27 @@ class SAC(Policy):
                 self.target_critic2(cur_features, actions).flatten(),
             )
         return values.reshape((batch_length, horizon_length)).detach().cpu().numpy()
-
-    def _gradient_descent(self, loss, optimizer_keys, retain_graph = False):
-        for key in optimizer_keys:
+    
+    def _optim_zero_grad(self):
+        for key in self._optimizers.keys():
             self._optimizers[key].zero_grad()
-        loss.backward(retain_graph = retain_graph)
-        for key in optimizer_keys:
+
+    def _optim_step(self):
+        for key in self._optimizers.keys():
             self._optimizers[key].step()
 
     def _update_targets(self):
-        target_qfs = [self.target_critic1, self.target_critic2]
-        qfs = [self.critic1, self.critic2]
-        for target_qf, qf in zip(target_qfs, qfs):
-            for t_param, param in zip(target_qf.parameters(), qf.parameters()):
+        target_nets = [self.target_critic1, self.target_critic2, self.target_pooler]
+        nets = [self.critic1, self.critic2, self.pooler]
+        for target_net, net in zip(target_nets, nets):
+            for t_param, param in zip(target_net.parameters(), net.parameters()):
                 t_param.data.copy_(t_param.data * (1.0 - self.tau) +
                                    param.data * self.tau)
                 
     def _update_loss_qf(self,
         cur_features,
         actions,
-        next_features,
+        next_features, target_next_features,
         dones,
         rewards,
     ):
@@ -163,8 +154,8 @@ class SAC(Policy):
             new_next_action_log_probs = next_action_dists.log_prob(new_next_actions)
 
         target_q_values = torch.min(
-            self.target_critic1(next_features, new_next_actions).flatten(),
-            self.target_critic2(next_features, new_next_actions).flatten(),
+            self.target_critic1(target_next_features, new_next_actions).flatten(),
+            self.target_critic2(target_next_features, new_next_actions).flatten(),
         )
         target_q_values = target_q_values - alpha * new_next_action_log_probs
         target_q_values = target_q_values * self.discount
@@ -231,5 +222,4 @@ class SAC(Policy):
         clip_down = (actions < lower).float()
         with torch.no_grad():
             clip = ((upper - actions) * clip_up + (lower - actions) * clip_down)
-    
         return actions + clip

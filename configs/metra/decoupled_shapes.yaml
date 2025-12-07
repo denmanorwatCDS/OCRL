@@ -8,7 +8,7 @@ trainer_args:
 
 replay_buffer:
   common:
-    max_transitions: 4000000
+    max_transitions: 1000000
 
 skill:
   name: "metra"

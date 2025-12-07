@@ -50,7 +50,7 @@ rl_algo:
   gae_lambda: null
   device: ${globals.device}
   slot_pooler:
-    name: Identity
+    name: IdentitySkill
     lr: 1e-4
     wd: 0.
     kwargs: {}

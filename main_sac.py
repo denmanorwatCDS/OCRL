@@ -83,11 +83,11 @@ def make_env(env_name, env_kwargs, max_path_length, seed, frame_stack, normalize
     elif env_name == 'decoupled_shapes':
         from envs.shapes.push_env.push import PushEnv
         env = PushEnv(seed = seed, arena_size = 2.5, render_mode = 'state', 
-                      render_info = render_info)
+                      render_info = render_info, num_objects_range = [1, 1])
     elif env_name == 'easy_decoupled_shapes':
         from envs.shapes.push_env.push import PushEnv
         env = PushEnv(seed = seed, arena_size = 2.5, render_mode = 'simple_state', 
-                      render_info = render_info)
+                      render_info = render_info, num_objects_range = [1, 1])
     elif env_name.startswith('dmc'):
         from envs.custom_dmc_tasks import dmc
         from envs.custom_dmc_tasks.pixel_wrappers import RenderWrapper
@@ -150,7 +150,7 @@ def run():
     # TODO change shape
     if config.rl_algo.name == 'SAC':
         rl_algo = SAC(name = 'SAC', obs_length = env.observation_space.shape[1], task_length = config.skill.dim_option, 
-                  action_length = env.action_space.shape[0], actor_config = config.rl_algo.policy, 
+                  action_length = env.action_space.shape[0], actor_config = config.rl_algo.policy, obj_qty = env.n_obj,
                   critic_config = config.rl_algo.critics, pooler_config = config.rl_algo.slot_pooler,
                   alpha = config.rl_algo.alpha.value, tau = config.rl_algo.tau, scale_reward = config.rl_algo.scale_reward,
                   env_spec = env, target_coef = config.rl_algo.target_coef, device = config.globals.device,

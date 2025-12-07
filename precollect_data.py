@@ -34,7 +34,7 @@ def run():
                   dual_slack = config.skill.dual_slack)
     env.close()
     skill_stats = StatisticsCalculator('skill')
-    for i in range(10_000_000):
+    for i in range(100_000):
         batch = replay_buffer.sample_transitions()
         batch = prepare_batch(batch)
         logs, rewards = skill_model.train_components(observations = batch['observations'], 

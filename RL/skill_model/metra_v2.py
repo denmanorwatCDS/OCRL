@@ -31,7 +31,7 @@ class METRA(torch.nn.Module):
         self.device = device
         self.preset_options = None
         self.pooler, self.is_pooler_trainable = get_pooler_network(name = pooler_config.name, obs_length = obs_length, 
-                                                                   skill_length=option_size,
+                                                                   skill_length = option_size, 
                                                                    pooler_config = pooler_config.kwargs)
         self.pooler.to(self.device)
         self.traj_encoder = MultiHeadedMLPModule(n_heads = 1, input_dim = self.pooler.outp_dim, output_dims = option_size,

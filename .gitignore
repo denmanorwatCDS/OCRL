@@ -8,3 +8,4 @@ logs/
 *.cpython-39
 __pycache__/*
 __pycache__
+perfect_buffer.pickle

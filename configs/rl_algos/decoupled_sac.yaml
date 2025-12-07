@@ -43,7 +43,7 @@ skill:
 
 rl_algo:
   name: 'SAC'
-  tau: 5e-3
+  tau: 1e-3
   scale_reward: 1.
   target_coef: 1.
   discount: 0.99
@@ -54,7 +54,8 @@ rl_algo:
     lr: 1e-4
     wd: 0.
     kwargs: 
-      nhead: 8
+      num_layers: 1
+      nhead: 4
       dim_feedforward: 192
   policy:
     name: 'option_policy'
@@ -103,7 +104,7 @@ trainer_args:
   trans_optimization_epochs: 200
   skill_optimization_epochs: null
   policy_optimization_mult: null
-  max_path_length: 50
+  max_path_length: 200
   transitions_before_training: 10_000
   log_frequency: 50_000
-  eval_frequency: 250_000
+  eval_frequency: 100_000
