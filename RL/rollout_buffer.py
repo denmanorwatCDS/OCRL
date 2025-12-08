@@ -46,6 +46,10 @@ class OCRolloutBuffer():
                 obs_trajectory = []
             i += 1
         self.observation_qty = i
+        self.batch_for_visualisation = torch.from_numpy(random_dataset['obss'][0:self.observation_qty:int(self.observation_qty/10)])
+    
+    def get_batch_for_visualisation(self):
+        return deepcopy(self.batch_for_visualisation).to(self.device)
 
     def _calculate_samples_per_phase(self, mode):
         if mode == 'rollout':

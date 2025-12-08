@@ -20,8 +20,8 @@ from RL.policy import Policy
 from RL.rollout_buffer import OCRolloutBuffer
 from utils.train_tools import infer_obs_action_shape, make_env, update_curves_, get_uint_to_float, get_float_to_uint, stop_oc_optimizer_
 from data_utils.H5_dataset import H5Dataset
-from utils.eval_tools import calculate_explained_variance, evaluate_ocr_model, evaluate_agent, get_episodic_metrics, \
-    log_oc_results, log_ppg_results, Metrics
+from utils.eval_tools import calculate_explained_variance, visualise_batch, evaluate_agent,\
+    get_episodic_metrics, log_oc_results, log_ppg_results, Metrics
 
 @hydra.main(config_path="configs/", config_name="train_rl")
 def main(config):
@@ -42,23 +42,9 @@ def main(config):
     dropout_name = ':'.join(['drop_proba', str(config.ocr.feature_dropout.feature_dropout_proba)])
     name = ' '.join([prefix, config.env.env, config.ocr.name, frozen_name, slot_name, *wd_array, dropout_name])
     experiment.set_name(name)
-    dataset_path = '/'.join([config.dataset_root_path, 
-                             f"{config.env.obs_size}x{config.env.obs_size}", 
-                             config.env.precollected_dataset, 'dataset', 'data.hdf5'])
     torch_uint_to_float, numpy_uint_to_float = get_uint_to_float(config.ocr.image_limits[0], config.ocr.image_limits[1])
     float_to_uint = get_float_to_uint(config.ocr.image_limits[0], config.ocr.image_limits[1])
-    rollout_dataset = h5py.File(dataset_path, "r")['TrainingSet']
-    # TODO pass rollout preprocessor as input in wrappers to unify preprocessing pipeline for images
-    # gathered both from environment and via random policy as they are from same distribution
-    # TODO add freezed version of RL algorithm;
-    # TODO detach target tensors in PPG phase
-    rollout_preprocessor = lambda x: torch_uint_to_float(torch.from_numpy(x)).permute(2, 0, 1)
     
-    val_dataset = H5Dataset(datafile = dataset_path, uint_to_float = torch_uint_to_float,
-                            use_future = False, 
-                            future_steps = config.ocr.slotattr.matching_loss.steps_into_future, 
-                            augment = None, is_train = False)
-    val_dataloader = DataLoader(val_dataset, batch_size = config.ocr.batch_size, shuffle = False)
     if config.num_envs == 1:
         envs = gym.vector.SyncVectorEnv(
         [lambda: make_env(config.env, gamma = config.sb3.gamma, 
@@ -76,6 +62,20 @@ def main(config):
         eval_env_fns = [lambda rank = i: make_env(config.env, gamma = config.sb3.gamma, 
                         obs_preprocessor = numpy_uint_to_float, seed = config.seed, rank = rank) \
                         for i in range(config.num_envs, 2 * config.num_envs)]
+    
+    aggregated_obs, aggregated_dones = [], []
+    obs, done = envs.reset(), np.array([False for i in range(config.num_envs)])
+    obs_ch, obs_w, obs_h = obs.shape[1:]
+    for i in range((config.sb3.memory_size + (config.num_envs - 1)) // config.num_envs - 1):
+        aggregated_obs.append(obs), aggregated_dones.append(done)
+        obs, reward, done, info = envs.step(envs.action_space.sample())
+    # As rollout dataset won't be used anything for training representations of object-centric encoders
+    # we mark last observation as done = True.
+    aggregated_obs.append(obs), aggregated_dones.append([True for i in range(config.num_envs)])
+    long_obs, long_dones = np.stack(aggregated_obs, axis = 1), np.stack(aggregated_dones, axis = 1)
+    rollout_dataset = {'obss': long_obs.reshape(-1, obs_ch, obs_w, obs_h), 
+                       'dones': long_dones.reshape(-1)}
+    rollout_preprocessor = lambda x: torch.from_numpy(x)
 
     random.seed(config.seed), np.random.seed(config.seed), torch.manual_seed(config.seed)
     device = torch.device("cuda")
@@ -88,8 +88,9 @@ def main(config):
                                      rollout_max_epochs = config.sb3.rollout_epochs, ppg_max_epochs = config.sb3.ppg_epochs,
                                      use_future = config.ocr.slotattr.matching_loss.use, 
                                      steps_into_future = config.ocr.slotattr.matching_loss.steps_into_future, 
-                                     memory_size = 50_000, 
+                                     memory_size = config.sb3.memory_size, 
                                      random_dataset = rollout_dataset, dataset_preprocessor = rollout_preprocessor)
+    
 
     oc_model = getattr(ocrs, config.ocr.name)(config.ocr, obs_size = config.env.obs_size, obs_channels = config.env.obs_channels)
     agent = Policy(observation_size = obs_shape[-1], action_size = agent_action_data, is_action_discrete = is_discrete, 
@@ -122,7 +123,7 @@ def main(config):
     
     metrics = Metrics()
     oc_model.inference_mode()
-    oc_logs, oc_images = evaluate_ocr_model(oc_model, val_dataloader, eval_steps = 10)
+    oc_logs, oc_images = visualise_batch(oc_model, rollout_buffer.get_batch_for_visualisation())
     oc_model.training_mode()
     log_oc_results(experiment = experiment, step = global_step, 
                    oc_logs = oc_logs, oc_imgs = oc_images)
@@ -195,7 +196,7 @@ def main(config):
         # Evaluation stage
         if (global_step // config.sb3.eval_freq - prev_global_step // config.sb3.eval_freq) != 0:
             oc_model.inference_mode(), agent.inference_mode()
-            oc_logs, oc_images = evaluate_ocr_model(oc_model, val_dataloader, eval_steps = 10)
+            oc_logs, oc_images = visualise_batch(oc_model, rollout_buffer.get_batch_for_visualisation())
             path_to_video, mean_return = evaluate_agent(oc_model = oc_model, agent = agent, make_env_fns = eval_env_fns,
                                                         device = device, float_to_uint = float_to_uint)
             metrics.update({'eval/mean_return': mean_return})

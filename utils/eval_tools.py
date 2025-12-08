@@ -154,6 +154,34 @@ def evaluate_ocr_model(model, val_dataloader, full_eval = False, eval_steps=250)
         imgs[name] = attn_images[name]
     return logs, imgs
 
+def visualise_batch(model, obs_batch):
+    attn_images, recon_images = {}, []
+    mets = model.calculate_validation_data(obs_batch.cuda())
+    if 'reconstructions' in mets.keys():
+        for j in range(7):
+            imgs = []
+            for key, value in mets['reconstructions'].items():
+                imgs.append(value[j])
+            imgs.append(model.convert_tensor_to_img(obs_batch[j]))
+            recon_images.append(np.concatenate(imgs, axis = 1))
+    
+    if 'masked_imgs' in mets.keys():
+        for j in range(7):
+            imgs = []
+            for key, value in mets['masked_imgs'].items():
+                if not (key in attn_images.keys()):
+                    attn_images[key] = []
+                attn_images[key].append(value[j])
+            
+        for name in attn_images.keys():
+            attn_images[name] = np.concatenate(attn_images[name], axis = 1)
+            attn_images[name] = np.transpose(attn_images[name], (1, 0, 2, 3))
+            attn_images[name] = np.reshape(attn_images[name], (attn_images[name].shape[0], 
+                                                               attn_images[name].shape[1] * attn_images[name].shape[2],
+                                                               attn_images[name].shape[3]))
+    
+    return {}, {'Reconstruction': np.concatenate(recon_images, axis=0), **attn_images}
+
 def evaluate_agent(oc_model, agent, make_env_fns, device, float_to_uint, eval_episodes = 64):
     num_envs = len(make_env_fns)
     if num_envs == 1:

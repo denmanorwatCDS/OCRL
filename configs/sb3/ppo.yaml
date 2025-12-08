@@ -1,5 +1,6 @@
 name: 'PPO'
 train_feature_extractor: true
+memory_size: 50_000
 n_steps: 2048
 batch_size: 64
 ent_coef: 0.0

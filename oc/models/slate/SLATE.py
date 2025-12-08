@@ -238,8 +238,7 @@ class SLATE(OC_model):
                 'slot_mean': slot_mean.cpu().numpy(), 'slot_std': slot_std.cpu().numpy(), 
                 'feat_mean': feat_mean.cpu().numpy(), 'feat_std': feat_std.cpu().numpy(),
                 'reconstructions': {'DVAE': self.convert_tensor_to_img(dvae_recon), 
-                                    'SLATE': self.convert_tensor_to_img(tr_recon),
-                                    'dropout_SLATE': self.convert_tensor_to_img(drop_tr_recon)},
+                                    'SLATE': self.convert_tensor_to_img(tr_recon)},
                 'masked_imgs': {'no_dropout_enc': self.convert_tensor_to_img(enc_masked_imgs),
                                 'dropout_enc': self.convert_tensor_to_img(drop_enc_masked_imgs)},
                 'masks': {'no_dropout_enc': enc_masks.cpu(), 'dropout_enc': drop_enc_masks.cpu()}
