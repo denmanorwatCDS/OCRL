@@ -132,6 +132,16 @@ class SAC(Policy):
                 t_param.data.copy_(t_param.data * (1.0 - self.tau) +
                                    param.data * self.tau)
                 
+    def disable_grad_calc(self, networks):
+        for net in networks:
+            for param in net.parameters():
+                param.requires_grad_(False)
+
+    def enable_grad_calc(self, networks):
+        for net in networks:
+            for param in net.parameters():
+                param.requires_grad_(True)
+                
     def _update_loss_qf(self,
         cur_features,
         actions,
@@ -188,13 +198,16 @@ class SAC(Policy):
             new_actions = action_dists.rsample()
             new_actions = self._clip_actions(new_actions)
             new_action_log_probs = action_dists.log_prob(new_actions)
+        
+        self.disable_grad_calc([self.critic1, self.critic2])
         min_q_values = torch.min(
-            self.critic1(cur_features, new_actions).flatten(),
-            self.critic2(cur_features, new_actions).flatten(),
+            self.critic1(cur_features.detach(), new_actions).flatten(),
+            self.critic2(cur_features.detach(), new_actions).flatten(),
         )
 
         loss_sacp = (alpha * new_action_log_probs - min_q_values).mean()
-
+        self.enable_grad_calc([self.critic1, self.critic2])
+        
         return new_action_log_probs, loss_sacp, {
             'LossSacp': loss_sacp.detach(),
             'SacpNewActionLogProbMean': new_action_log_probs.mean()

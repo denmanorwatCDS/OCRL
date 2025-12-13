@@ -23,7 +23,6 @@ class METRA(torch.nn.Module):
             discrete,
             unit_length,
             device,
-
             dual_reg,
             dual_slack,
     ):
