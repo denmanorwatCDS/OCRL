@@ -2,19 +2,19 @@ import copy
 import torch
 import torch.nn.functional as F
 import numpy as np
-from RL.policies.policy_v2 import Policy
+from RL.policies.policy_v2 import Actor
 from networks.poolers.poolers import get_pooler_network
 from torch.optim import AdamW
 from itertools import chain
 from networks.utils.parameter import ParameterModule
+from networks.regressors.regressors import ReturnPredictor
 
-class SAC(Policy):
+class SAC(torch.nn.Module):
     def __init__(self,
                  name,
                  obs_length, task_length, obj_qty, action_length,
                  actor_config, critic_config, pooler_config,
-                 actor_lr, critic_lr, pooler_lr, log_alpha_lr,
-                 actor_wd, critic_wd, pooler_wd, log_alpha_wd,
+                 lr, wd,
                  clip_action=False,
                  force_use_mode_actions=False,
                  *,
@@ -25,57 +25,58 @@ class SAC(Policy):
                  target_coef,
                  device,
                  discount):
-        super(Policy, self).__init__()
-        self.pooler, self.is_pooler_trainable = get_pooler_network(name = pooler_config.name, obs_length = obs_length, skill_length = task_length, 
-                                                                   obj_qty = obj_qty, pooler_config = pooler_config.kwargs)
-        self.pooler.to(device)
-        super().__init__(name = name, device = device, feature_len = self.pooler.outp_dim, action_length = action_length,
-                         account_for_action = True, actor_config = actor_config, critic_config = critic_config,
-                         clip_action = clip_action, force_use_mode_actions = force_use_mode_actions)
-        self.log_alpha = ParameterModule(torch.Tensor([np.log(alpha)])).to(device)
-        self.build_optimizers(actor_lr = actor_lr, critic_lr = critic_lr, pooler_lr = pooler_lr, 
-                              log_alpha_lr = log_alpha_lr, actor_wd = actor_wd, critic_wd = critic_wd, 
-                              pooler_wd = pooler_wd, log_alpha_wd = log_alpha_wd)
+        super().__init__()
+        self.pooler = get_pooler_network(name = pooler_config.name, obs_length = obs_length, skill_length = task_length, 
+                                         obj_qty = obj_qty, pooler_config = pooler_config.kwargs).to(device)
+        self.target_pooler = copy.deepcopy(self.pooler)
+        
+        self.log_alpha = torch.nn.Parameter(data = torch.log(torch.Tensor([alpha])).to(device),
+                                            requires_grad = True)
         self.discount = discount
         self.device = device
 
+        self.critic1 = ReturnPredictor(feature_length = self.pooler.outp_dim, action_length = action_length, 
+                                       account_for_action = True, 
+                                       nonlinearity_name = critic_config.hidden_nonlinearity,
+                                       hidden_sizes = critic_config.hidden_sizes).to(device)
+        self.critic2 = ReturnPredictor(feature_length = self.pooler.outp_dim, action_length = action_length, 
+                                       account_for_action = True, 
+                                       nonlinearity_name = critic_config.hidden_nonlinearity,
+                                       hidden_sizes = critic_config.hidden_sizes).to(device)
         self.target_critic1 = copy.deepcopy(self.critic1)
         self.target_critic2 = copy.deepcopy(self.critic2)
-        self.target_pooler = copy.deepcopy(self.pooler)
+        self.actor = Actor(feature_len = self.pooler.outp_dim, action_length = action_length,
+                           distribution_class = actor_config.normal_distribution_cls, 
+                           distribution_parameterization = actor_config.distribution_parameterization,
+                           hidden_sizes = actor_config.hidden_sizes, 
+                           hidden_nonlinearity = actor_config.hidden_nonlinearity,
+                           init_std = actor_config.init_std, clip_action = clip_action,
+                           force_use_mode_actions = force_use_mode_actions).to(device)
         
         self.tau = tau
         self._reward_scale_factor = scale_reward
         self._target_entropy = -np.prod(env_spec.action_space.shape).item() / 2. * target_coef
+        self.optimizer = AdamW(params = self.parameters(), lr = lr, weight_decay = wd)
 
-    def build_optimizers(self, actor_lr, critic_lr, pooler_lr, log_alpha_lr,
-                               actor_wd, critic_wd, pooler_wd, log_alpha_wd):
-        self._optimizers = {'actor': AdamW(params = self.actor.parameters(), lr = actor_lr, weight_decay = actor_wd),
-                            'critic': AdamW(params = chain(self.critic1.parameters(), self.critic2.parameters()), 
-                                            lr = critic_lr, weight_decay = critic_wd),
-                            'log_alpha': AdamW(params = self.log_alpha.parameters(), 
-                                               lr = log_alpha_lr, weight_decay = log_alpha_wd)}
-        if self.is_pooler_trainable:
-            self._optimizers['pooler'] = AdamW(params = self.pooler.parameters(), lr = pooler_lr, weight_decay = pooler_wd)
-
-    @property
-    def policy(self):
-        return {
-            'option_policy': self.actor,
-        }
-    
     @property
     def on_policy(self):
         return False
     
     def eval(self):
-        self.actor.eval(), self.critic1.eval(), self.critic2.eval(), self.target_critic1.eval(), self.target_critic2.eval(), self.target_pooler.eval()
-        if self.is_pooler_trainable:
-            self.pooler.eval()
+        self.actor.eval(), self.critic1.eval(), self.critic2.eval(),\
+            self.target_critic1.eval(), self.target_critic2.eval(),\
+                self.pooler.eval(), self.target_pooler.eval()
 
     def train(self):
-        self.actor.train(), self.critic1.train(), self.critic2.train(), self.target_critic1.train(), self.target_critic2.train(), self.target_pooler.train()
-        if self.is_pooler_trainable:
-            self.pooler.train()
+        self.actor.train(), self.critic1.train(), self.critic2.train(),\
+            self.target_critic1.train(), self.target_critic2.train(),\
+                self.pooler.train(), self.target_pooler.train()
+        
+    def get_actions(self, observations, tasks, obj_idxs):
+        observations, obj_idxs = torch.from_numpy(observations).to(self.device), torch.from_numpy(obj_idxs).to(self.device)
+        tasks = torch.from_numpy(tasks).to(self.device)
+        single_features = self.pooler(observations, tasks, obj_idxs)
+        return self.actor.get_actions(single_features)
 
     def optimize_op(self, observations, next_observations, obj_idxs, options, actions, dones, rewards):
         logs = {}
@@ -88,17 +89,17 @@ class SAC(Policy):
             dones = dones,
             rewards = rewards * self._reward_scale_factor
         )
-        self._optim_zero_grad()
-        loss_qf.backward(retain_graph = True)
-        
         new_action_log_probs, sacp_loss, sacp_logs = self._update_loss_sacp(cur_features = cur_features)
-        sacp_loss.backward(retain_graph = True)
 
         loss_alpha, alpha_logs = self._update_loss_alpha(new_action_log_probs)
-        loss_alpha.backward()
-        logs.update({**qf_logs, **sacp_logs, **alpha_logs})
-        self._optim_step()
+        
+        self.optimizer.zero_grad()
+        loss = (loss_qf + sacp_loss + loss_alpha)
+        loss.backward()
+        self.optimizer.step()
         self._update_targets()
+        
+        logs.update({**qf_logs, **sacp_logs, **alpha_logs})
         return logs
     
     def inference_value(self, observations, actions, options, obj_idxs):
@@ -150,11 +151,11 @@ class SAC(Policy):
         rewards,
     ):
         with torch.no_grad():
-            alpha = self.log_alpha.param.exp()
+            alpha = self.log_alpha.exp()
         q1_pred = self.critic1(cur_features, actions).flatten()
         q2_pred = self.critic2(cur_features, actions).flatten()
         
-        next_action_dists, *_ = self.forward(next_features)
+        next_action_dists, *_ = self.actor(next_features)
         if hasattr(next_action_dists, 'rsample_with_pre_tanh_value'):
             new_next_actions_pre_tanh, new_next_actions = next_action_dists.rsample_with_pre_tanh_value()
             new_next_action_log_probs = next_action_dists.log_prob(new_next_actions, pre_tanh_value=new_next_actions_pre_tanh)
@@ -188,9 +189,9 @@ class SAC(Policy):
             self, cur_features, 
     ):
         with torch.no_grad():
-            alpha = self.log_alpha.param.exp()
+            alpha = self.log_alpha.exp()
 
-        action_dists, *_ = self.forward(cur_features)
+        action_dists, *_ = self.actor(cur_features)
         if hasattr(action_dists, 'rsample_with_pre_tanh_value'):
             new_actions_pre_tanh, new_actions = action_dists.rsample_with_pre_tanh_value()
             new_action_log_probs = action_dists.log_prob(new_actions, pre_tanh_value=new_actions_pre_tanh)
@@ -216,12 +217,12 @@ class SAC(Policy):
     def _update_loss_alpha(
             self, new_action_log_probs
     ):
-        loss_alpha = (-self.log_alpha.param * (
+        loss_alpha = (-self.log_alpha.exp() * (
                 new_action_log_probs.detach() + self._target_entropy
         )).mean()
 
         logs = {
-            'Alpha': self.log_alpha.param.exp().detach(),
+            'Alpha': self.log_alpha.exp().detach(),
             'LossAlpha': loss_alpha.detach()
         }
         return loss_alpha, logs

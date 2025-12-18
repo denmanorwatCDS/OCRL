@@ -155,10 +155,7 @@ def run():
                   alpha = config.rl_algo.alpha.value, tau = config.rl_algo.tau, scale_reward = config.rl_algo.scale_reward,
                   env_spec = env, target_coef = config.rl_algo.target_coef, device = config.globals.device,
                   discount = config.rl_algo.discount,
-                  actor_lr = config.rl_algo.policy.lr, critic_lr = config.rl_algo.critics.lr, 
-                  pooler_lr = config.rl_algo.slot_pooler.lr, log_alpha_lr = config.rl_algo.alpha.lr,
-                  actor_wd = config.rl_algo.policy.wd, critic_wd = config.rl_algo.critics.wd, 
-                  pooler_wd = config.rl_algo.slot_pooler.wd, log_alpha_wd = config.rl_algo.alpha.wd)
+                  lr = config.rl_algo.lr, wd = config.rl_algo.wd)
         
     elif config.rl_algo.name == 'PPO':
         rl_algo = PPO(name = 'PPO', obs_length = env.observation_space.shape[1], task_length = config.skill.dim_option,
@@ -179,14 +176,11 @@ def run():
                                #path_to_perfect_buffer = '/home/denis/Work/METRA_simplified/perfect_buffer.pickle')
 
     metra = METRA(obs_length = env.observation_space.shape[1], pooler_config = config.skill.slot_pooler, 
-                  traj_encoder_config = config.skill.trajectory_encoder, dist_predictor_config = None,
-                  pooler_lr = config.skill.slot_pooler.lr, traj_lr = config.skill.trajectory_encoder.lr, 
-                  dist_lr = None, dual_lam_lr = config.skill.dual_lr, 
-                  pooler_wd = config.skill.slot_pooler.wd, traj_wd = config.skill.trajectory_encoder.wd,
-                  dist_wd = None, dual_lam_wd = config.skill.dual_wd, 
-                  dist_predictor_name = config.skill.dual_dist_name, dual_lam = config.skill.dual_lam,
+                  traj_encoder_config = config.skill.trajectory_encoder,
+                  lr = config.skill.lr, wd = config.skill.wd,
+                  dual_lam = config.skill.dual_lam,
                   option_size = config.skill.dim_option, discrete = config.skill.discrete, 
-                  unit_length = config.skill.unit_length, device = config.globals.device, dual_reg = config.skill.dual_reg,
+                  unit_length = config.skill.unit_length, device = config.globals.device,
                   dual_slack = config.skill.dual_slack)
     env.close()
     

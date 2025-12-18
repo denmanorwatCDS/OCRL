@@ -71,10 +71,10 @@ class ConcatPooler(nn.Module):
     
 def get_pooler_network(name, obs_length, skill_length, pooler_config, obj_qty = None):
     if name == 'Transformer':
-        return TransformerPooler(obs_length = obs_length, skill_length = skill_length, **pooler_config), True
+        return TransformerPooler(obs_length = obs_length, skill_length = skill_length, **pooler_config)
     elif name == 'Fetcher':
-        return FetcherPooler(obs_length = obs_length), False
+        return FetcherPooler(obs_length = obs_length)
     elif name == 'Identity':
-        return IdentityPooler(obs_length = obs_length, skill_length = skill_length), False
+        return IdentityPooler(obs_length = obs_length, skill_length = skill_length)
     elif name == 'Concat':
-        return ConcatPooler(obs_length = obs_length, skill_length = skill_length, obj_qty = obj_qty), True
+        return ConcatPooler(obs_length = obs_length, skill_length = skill_length, obj_qty = obj_qty)

@@ -1,12 +1,13 @@
 import torch
+from torch import nn
 import numpy as np
-from RL.policies.policy_v2 import Policy
+from RL.policies.policy_v2 import Actor
 
 from torch.optim import AdamW
 from torch.nn.utils import clip_grad_norm_
 from networks.poolers.poolers import get_pooler_network
 
-class PPO(Policy):
+class PPO(nn.Module):
     def __init__(self,
                  name,
                  obs_length, task_length, action_length,
@@ -24,7 +25,7 @@ class PPO(Policy):
                  target_kl,
                  device
                  ):
-        super(Policy, self).__init__()
+        super().__init__()
         self.pooler, self.is_pooler_trainable = get_pooler_network(name = pooler_config.name, obs_length = obs_length, 
                                          pooler_config = pooler_config.kwargs)
         super().__init__(name = name, obs_length = self.pooler.outp_dim, task_length = task_length, 
