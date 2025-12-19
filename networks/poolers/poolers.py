@@ -27,7 +27,7 @@ class TransformerPooler(nn.Module):
         """
         self.obs_dim = obs_length
         self.dim_feedforward = dim_feedforward
-        self.outp_dim = dim_feedforward + skill_length
+        self.outp_dim = dim_feedforward
         
     def forward(self, seq, skill, obj_idx):
         # Expecting seq to be of shape [Batch, Seq_len, obs_dim]

@@ -5,8 +5,6 @@ import numpy as np
 from RL.policies.policy_v2 import Actor
 from networks.poolers.poolers import get_pooler_network
 from torch.optim import AdamW
-from itertools import chain
-from networks.utils.parameter import ParameterModule
 from networks.regressors.regressors import ReturnPredictor
 
 class SAC(torch.nn.Module):
@@ -116,14 +114,6 @@ class SAC(torch.nn.Module):
                 self.target_critic2(cur_features, actions).flatten(),
             )
         return values.reshape((batch_length, horizon_length)).detach().cpu().numpy()
-    
-    def _optim_zero_grad(self):
-        for key in self._optimizers.keys():
-            self._optimizers[key].zero_grad()
-
-    def _optim_step(self):
-        for key in self._optimizers.keys():
-            self._optimizers[key].step()
 
     def _update_targets(self):
         target_nets = [self.target_critic1, self.target_critic2, self.target_pooler]
