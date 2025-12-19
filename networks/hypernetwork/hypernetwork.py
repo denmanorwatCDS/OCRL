@@ -25,11 +25,15 @@ class HyperNetwork(nn.Module):
             self.tot_params += (matrix_pair[0][0] * matrix_pair[0][1] + matrix_pair[1][0] * matrix_pair[1][1])
         hypernetwork_modules.append(nn.Linear(hypernet_arch[-1], self.tot_params))
         self.hypernetwork = nn.Sequential(*hypernetwork_modules)
+        self.biases = nn.ParameterList()
+        for next_layer in net_arch[1:]:
+            self.biases.append(nn.Parameter(torch.zeros(next_layer), requires_grad=True))
 
     def forward(self, obs, parameterizer):
         params_for_task = self.hypernetwork(parameterizer)
         act = getattr(nn, self.net_act)()
         outp, latest_used_param = obs.reshape(-1, 1, obs.shape[-1]), 0
+        i = 0
         for first_mat_dims, second_mat_dims in self.linear_matricies:
             first_param_qty = first_mat_dims[0] * first_mat_dims[1]
             second_param_qty = second_mat_dims[0] * second_mat_dims[1]
@@ -39,7 +43,10 @@ class HyperNetwork(nn.Module):
             second_mat = params_for_task[:, latest_used_param: latest_used_param + second_param_qty].reshape(
                                          -1, *second_mat_dims)
             latest_used_param += second_param_qty
-            outp = outp @ first_mat @ second_mat
+            
+            # Apply linear transformation
+            outp = outp @ first_mat @ second_mat + self.biases[i]
+            i += 1
             if latest_used_param != self.tot_params:
                 outp = act(outp)
         return torch.squeeze(outp)

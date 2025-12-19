@@ -27,7 +27,7 @@ class TransformerPooler(nn.Module):
         """
         self.obs_dim = obs_length
         self.dim_feedforward = dim_feedforward
-        self.outp_dim = dim_feedforward
+        self.outp_dim = dim_feedforward + skill_length
         
     def forward(self, seq, skill, obj_idx):
         # Expecting seq to be of shape [Batch, Seq_len, obs_dim]
@@ -45,7 +45,7 @@ class TransformerPooler(nn.Module):
         keys, values = self.k(transformed_seq), self.v(transformed_seq)
         attention = torch.softmax(torch.sum(query * keys, axis=-1, keepdim=True)/sqrt(self.dim_feedforward), dim = -2)
         output = torch.sum(attention * values, axis=-2)
-        return output
+        return torch.cat([output, skill], dim=-1)
 
 class IdentityPooler(nn.Module):
     def __init__(self, obs_length, skill_length):
