@@ -38,7 +38,7 @@ skill:
     hypernet:
       hidden_sizes: ${globals.mlp_arch}
       hidden_nonlinearity: ReLU
-      compressed_dim: 32
+      compressed_dim: 64
       parameterizer_dim: 12
 
 rl_algo:

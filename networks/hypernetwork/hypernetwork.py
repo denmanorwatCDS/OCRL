@@ -20,14 +20,12 @@ class HyperNetwork(nn.Module):
         net_arch = [net_in_dim, *net_arch, net_out_dim]
         self.linear_matricies = [((net_arch[i - 1], compressed_dim), (compressed_dim, net_arch[i]))\
                                  for i in range(1, len(net_arch))]
+        self.biases = [net_arch[i] for i in range(1, len(net_arch))]
         self.tot_params = 0
-        for matrix_pair in self.linear_matricies:
-            self.tot_params += (matrix_pair[0][0] * matrix_pair[0][1] + matrix_pair[1][0] * matrix_pair[1][1])
+        for bias, matrix_pair in zip(self.biases, self.linear_matricies):
+            self.tot_params += (matrix_pair[0][0] * matrix_pair[0][1] + matrix_pair[1][0] * matrix_pair[1][1] + bias)
         hypernetwork_modules.append(nn.Linear(hypernet_arch[-1], self.tot_params))
         self.hypernetwork = nn.Sequential(*hypernetwork_modules)
-        self.biases = nn.ParameterList()
-        for next_layer in net_arch[1:]:
-            self.biases.append(nn.Parameter(torch.zeros(next_layer), requires_grad=True))
 
     def forward(self, obs, parameterizer):
         params_for_task = self.hypernetwork(parameterizer)
@@ -35,6 +33,7 @@ class HyperNetwork(nn.Module):
         outp, latest_used_param = obs.reshape(-1, 1, obs.shape[-1]), 0
         i = 0
         for first_mat_dims, second_mat_dims in self.linear_matricies:
+            bias_dim = self.biases[i]
             first_param_qty = first_mat_dims[0] * first_mat_dims[1]
             second_param_qty = second_mat_dims[0] * second_mat_dims[1]
             first_mat = params_for_task[:, latest_used_param: latest_used_param + first_param_qty].reshape(
@@ -43,10 +42,14 @@ class HyperNetwork(nn.Module):
             second_mat = params_for_task[:, latest_used_param: latest_used_param + second_param_qty].reshape(
                                          -1, *second_mat_dims)
             latest_used_param += second_param_qty
+            bias = torch.unsqueeze(params_for_task[:, latest_used_param: latest_used_param + bias_dim], dim = 1)
+            latest_used_param += bias_dim
             
             # Apply linear transformation
-            outp = outp @ first_mat @ second_mat + self.biases[i]
+            outp = outp @ first_mat @ second_mat + bias
             i += 1
             if latest_used_param != self.tot_params:
                 outp = act(outp)
+            else:
+                outp -= bias
         return torch.squeeze(outp)
