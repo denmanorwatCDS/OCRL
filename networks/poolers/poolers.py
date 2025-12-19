@@ -45,7 +45,7 @@ class TransformerPooler(nn.Module):
         keys, values = self.k(transformed_seq), self.v(transformed_seq)
         attention = torch.softmax(torch.sum(query * keys, axis=-1, keepdim=True)/sqrt(self.dim_feedforward), dim = -2)
         output = torch.sum(attention * values, axis=-2)
-        return torch.cat([output, skill], dim=-1)
+        return output
 
 class IdentityPooler(nn.Module):
     def __init__(self, obs_length, skill_length):
