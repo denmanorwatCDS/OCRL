@@ -3,7 +3,7 @@ import torch
 import numpy as np
 from matplotlib import cm
 from networks.poolers.poolers import get_pooler_network
-from networks.hypernetwork.hypernetwork import HyperNetwork
+from networks.hypernetwork.hypernetwork import HyperNetwork, PairedNetwork
 from torch.optim import AdamW
 from eval_utils.eval_utils import get_option_colors
 from networks.utils.mlp_builder import mlp_builder
@@ -34,7 +34,8 @@ class METRA(torch.nn.Module):
                                       hypernet_param_dim = traj_encoder_config.hypernet.parameterizer_dim,
                                       hypernet_hidden_sizes = traj_encoder_config.hypernet.hidden_sizes,
                                       hypernet_hidden_act = traj_encoder_config.hypernet.hidden_nonlinearity,
-                                      hypernet_compressed_dim = traj_encoder_config.hypernet.compressed_dim)
+                                      hypernet_compressed_dim = traj_encoder_config.hypernet.compressed_dim,
+                                      hypernet_type = traj_encoder_config.hypernet.type)
         self.log_dual_lam = torch.nn.Parameter(data = torch.log(torch.Tensor([dual_lam])).to(device), 
                                                requires_grad = True)
 
@@ -46,7 +47,8 @@ class METRA(torch.nn.Module):
         self.optimizer = AdamW(params = self.parameters(), lr = lr, weight_decay = wd)
 
     def _init_trajectory_encoder(self, obs_dim, skill_dim, net_hidden_sizes, net_hidden_nonlinearity, 
-                                 hypernet_param_dim, hypernet_hidden_act, hypernet_hidden_sizes, hypernet_compressed_dim):
+                                 hypernet_param_dim, hypernet_hidden_act, hypernet_hidden_sizes, hypernet_compressed_dim,
+                                 hypernet_type):
         self.enc, self.dec = None, None
         if (hypernet_param_dim is None) or (hypernet_hidden_sizes is None) or (hypernet_compressed_dim is None):
             self._traj_encoder = mlp_builder(in_dim = obs_dim, 
@@ -54,14 +56,19 @@ class METRA(torch.nn.Module):
                                              out_dim = skill_dim,
                                              nonlinearity_name = net_hidden_nonlinearity).to(self.device)
             self._use_hyper_net = False
-        else:
-            self._traj_encoder = HyperNetwork(parameterizer_dim = hypernet_param_dim, 
-                                              net_in_dim = obs_dim, net_out_dim = skill_dim,
-                                              hypernet_arch = hypernet_hidden_sizes,
-                                              hypernet_act = hypernet_hidden_act,
-                                              compressed_dim = hypernet_compressed_dim,
-                                              net_arch = net_hidden_sizes, 
-                                              net_act = net_hidden_nonlinearity).to(self.device)
+        elif hypernet_type in ['classic', 'stupid']:
+            if hypernet_type == 'classic':
+                self._traj_encoder = HyperNetwork(parameterizer_dim = hypernet_param_dim, 
+                                                  net_in_dim = obs_dim, net_out_dim = skill_dim,
+                                                  hypernet_arch = hypernet_hidden_sizes,
+                                                  hypernet_act = hypernet_hidden_act,
+                                                  compressed_dim = hypernet_compressed_dim,
+                                                  net_arch = net_hidden_sizes, 
+                                                  net_act = net_hidden_nonlinearity).to(self.device)
+            elif hypernet_type == 'stupid':
+                self._traj_encoder = PairedNetwork(net_in_dim = obs_dim, net_out_dim = skill_dim, 
+                                                   net_arch = net_hidden_sizes, 
+                                                   net_act = net_hidden_nonlinearity).to(self.device)
             def enc(x):
                 return x[..., :-2]
             

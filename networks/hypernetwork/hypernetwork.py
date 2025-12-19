@@ -1,6 +1,7 @@
 import torch
 from torch import nn
 from torch.nn import functional
+from networks.utils.mlp_builder import mlp_builder
 
 class HyperNetwork(nn.Module):
     def __init__(self, parameterizer_dim, net_in_dim, net_out_dim,
@@ -53,3 +54,18 @@ class HyperNetwork(nn.Module):
             else:
                 outp -= bias
         return torch.squeeze(outp)
+    
+class PairedNetwork(nn.Module):
+    def __init__(self, net_in_dim, net_out_dim, net_arch, net_act):
+        super().__init__()
+        self.agent_net = mlp_builder(in_dim = net_in_dim, net_architecture = net_arch, out_dim = net_out_dim,
+                                     nonlinearity_name = net_act)
+        self.shape_net = mlp_builder(in_dim = net_in_dim, net_architecture = net_arch, out_dim = net_out_dim,
+                                     nonlinearity_name = net_act)
+        
+    def forward(self, obs, parameterizer):
+        agent_out = self.agent_net(obs)
+        shape_out = self.shape_net(obs)
+        is_agent = torch.all((parameterizer == torch.tensor([1., 0., 0., 0., 0., 0., 0., 0., 0., 0., 1., 0.06]).cuda()), dim=-1)
+        is_agent = torch.reshape(is_agent, (-1, 1))
+        return torch.where(condition = is_agent, input = agent_out, other = shape_out)

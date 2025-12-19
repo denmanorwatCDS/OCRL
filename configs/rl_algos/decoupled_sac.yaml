@@ -40,6 +40,7 @@ skill:
       hidden_nonlinearity: ReLU
       compressed_dim: 64
       parameterizer_dim: 12
+      type: stupid
 
 rl_algo:
   name: 'SAC'
