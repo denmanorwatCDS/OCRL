@@ -82,11 +82,11 @@ def make_env(env_name, env_kwargs, max_path_length, seed, frame_stack, normalize
                                            render_info = render_info)
     elif env_name == 'decoupled_shapes':
         from envs.shapes.push_env.push import PushEnv
-        env = PushEnv(seed = seed, arena_size = 2.5, render_mode = 'state', 
+        env = PushEnv(seed = seed, arena_size = 3., render_mode = 'state', 
                       render_info = render_info, num_objects_range = [1, 1])
     elif env_name == 'easy_decoupled_shapes':
         from envs.shapes.push_env.push import PushEnv
-        env = PushEnv(seed = seed, arena_size = 2.5, render_mode = 'simple_state', 
+        env = PushEnv(seed = seed, arena_size = 3., render_mode = 'simple_state', 
                       render_info = render_info, num_objects_range = [1, 1])
     elif env_name.startswith('dmc'):
         from envs.custom_dmc_tasks import dmc
