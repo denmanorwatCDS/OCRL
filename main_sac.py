@@ -154,8 +154,7 @@ def run():
                   critic_config = config.rl_algo.critics, pooler_config = config.rl_algo.slot_pooler,
                   alpha = config.rl_algo.alpha.value, tau = config.rl_algo.tau, scale_reward = config.rl_algo.scale_reward,
                   env_spec = env, target_coef = config.rl_algo.target_coef, device = config.globals.device,
-                  discount = config.rl_algo.discount,
-                  lr = config.rl_algo.lr, wd = config.rl_algo.wd)
+                  discount = config.rl_algo.discount, lr = config.rl_algo.lr, wd = config.rl_algo.wd)
         
     elif config.rl_algo.name == 'PPO':
         rl_algo = PPO(name = 'PPO', obs_length = env.observation_space.shape[1], task_length = config.skill.dim_option,
